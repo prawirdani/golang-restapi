@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prawirdani/golang-restapi/config"
 	"github.com/prawirdani/golang-restapi/internal/domain/auth"
 	"github.com/prawirdani/golang-restapi/internal/domain/user"
@@ -20,22 +19,17 @@ type Services struct {
 type Container struct {
 	Config   *config.Config
 	Services *Services
-	pgpool   *pgxpool.Pool
 }
 
 // NewContainer initializes all dependencies
 func NewContainer(
 	cfg *config.Config,
-	pgpool *pgxpool.Pool,
+	pg *postgres.DB,
 	rmqconn *amqp.Connection,
 ) (*Container, error) {
-	// Postgres Repo Factory
-	repoFactory := postgres.NewRepositoryFactory(pgpool)
-	transactor := postgres.NewTransactor(pgpool)
-
-	r2PublicStorage, err := r2.New(r2.Config{
-		BucketURL:       cfg.R2.PublicBucketURL,
-		BucketName:      cfg.R2.PublicBucket,
+	r2Storage, err := r2.New(r2.Config{
+		BucketURL:       cfg.R2.BucketURL,
+		BucketName:      cfg.R2.Bucket,
 		AccountID:       cfg.R2.AccountID,
 		AccessKeyID:     cfg.R2.AccessKeyID,
 		AccessKeySecret: cfg.R2.AccessKeySecret,
@@ -44,15 +38,19 @@ func NewContainer(
 		return nil, err
 	}
 
+	// Repos init
+	userRepo := postgres.NewUserRepository(pg)
+	authRepo := postgres.NewAuthRepository(pg)
+
 	// Setup Services
-	userService := user.NewService(transactor, repoFactory.User(), r2PublicStorage)
+	userService := user.NewService(pg, userRepo, r2Storage)
 
 	authMessagePublisher := rabbitmq.NewAuthMessagePublisher(rmqconn)
-	authService := auth.NewService(
+	authSvc := auth.NewService(
 		cfg.Auth,
-		transactor,
-		repoFactory.User(),
-		repoFactory.Auth(),
+		pg,
+		userRepo,
+		authRepo,
 		authMessagePublisher,
 	)
 
@@ -60,9 +58,8 @@ func NewContainer(
 		Config: cfg,
 		Services: &Services{
 			UserService: userService,
-			AuthService: authService,
+			AuthService: authSvc,
 		},
-		pgpool: pgpool,
 	}
 
 	return c, nil

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	stdlog "log"
 
@@ -16,14 +17,18 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+func init() {
+	time.Local, _ = time.LoadLocation("UTC")
+}
+
 func main() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		stdlog.Fatal("Failed to load config", err)
 	}
-	log.SetLogger(log.NewZerologAdapter(cfg))
+	log.SetLogger(log.NewZerologAdapter(cfg.IsProduction()))
 
-	pgpool, err := postgres.NewPool(cfg.Postgres)
+	pgpool, err := postgres.New(cfg.Postgres)
 	if err != nil {
 		log.Error("Failed to create postgres connection", err)
 		os.Exit(1)
@@ -77,7 +82,7 @@ func initRabbitMQ(url string) (*amqp.Connection, error) {
 
 	if err := rabbitmq.SetupTopologies(
 		conn,
-		rabbitmq.ResetPasswordEmailTopology,
+		rabbitmq.PasswordRecoveryEmailTopology,
 	); err != nil {
 		return nil, fmt.Errorf("setup topologies: %w", err)
 	}

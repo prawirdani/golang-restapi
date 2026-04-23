@@ -6,7 +6,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/prawirdani/golang-restapi/config"
 	"github.com/rs/zerolog"
 )
 
@@ -17,70 +16,57 @@ type ZerologAdapter struct {
 	l zerolog.Logger
 }
 
-func NewZerologAdapter(cfg *config.Config) *ZerologAdapter {
+func NewZerologAdapter(production bool) *ZerologAdapter {
 	// Inlining common field keys and format with slog version
 	zerolog.TimestampFieldName = "timestamp"
 	zerolog.CallerFieldName = "source"
 	zerolog.TimeFieldFormat = time.RFC3339Nano
 
-	if !cfg.IsProduction() {
-		logger := zerolog.New(zerolog.ConsoleWriter{NoColor: false, Out: os.Stdout, TimeFormat: time.TimeOnly}).
-			With().
-			Timestamp().
-			Caller().
-			Logger().
-			Level(zerolog.DebugLevel)
-		return &ZerologAdapter{
-			l: logger,
-		}
+	var w io.Writer = zerolog.ConsoleWriter{NoColor: false, Out: os.Stdout, TimeFormat: time.TimeOnly}
+	level := zerolog.DebugLevel
+
+	if production {
+		w = os.Stdout
+		level = zerolog.InfoLevel
 	}
 
-	logger := zerolog.New(os.Stdout).
+	logger := zerolog.New(w).
 		With().
-		Dict("app", zerolog.Dict().Str("name", cfg.App.Name).Str("version", cfg.App.Version).Str("env", string(cfg.App.Environment))).
 		Timestamp().
 		Caller().
 		Logger().
-		Level(zerolog.InfoLevel)
+		Level(level)
+
 	return &ZerologAdapter{
 		l: logger,
 	}
 }
 
-// NewJSONZerolog creates a zerolog logger with JSON output for production
-func NewJSONZerolog(w io.Writer) *ZerologAdapter {
-	if w == nil {
-		w = os.Stdout
-	}
-	logger := zerolog.New(w).With().Timestamp().Caller().Logger()
-	return &ZerologAdapter{l: logger}
-}
-
-// Debug logs at Debug level
+// Debug implements [Logger]
 func (z *ZerologAdapter) Debug(msg string, args ...any) {
 	event := z.l.Debug()
-	addFields(event, args...).Msg(msg)
+	z.addFields(event, args...).Msg(msg)
 }
 
-// Info logs at Info level
+// Info implements [Logger]
 func (z *ZerologAdapter) Info(msg string, args ...any) {
 	event := z.l.Info()
-	addFields(event, args...).Msg(msg)
+	z.addFields(event, args...).Msg(msg)
 }
 
-// Warn logs at Warn level
+// Warn implements [Logger]
 func (z *ZerologAdapter) Warn(msg string, args ...any) {
 	event := z.l.Warn()
-	addFields(event, args...).Msg(msg)
+	z.addFields(event, args...).Msg(msg)
 }
 
-// Error logs at Error level
+// Error implements [Logger]
 func (z *ZerologAdapter) Error(msg string, err error, args ...any) {
 	event := z.l.Error().Err(err)
-	addFields(event, args...).Msg(msg)
+	z.addFields(event, args...).Msg(msg)
 }
 
-// DebugCtx logs at Debug level with context
+// DebugCtx implements [Logger]
 func (z *ZerologAdapter) DebugCtx(ctx context.Context, msg string, args ...any) {
 	logger := z.l
 	if l := GetFromContext(ctx); l != nil {
@@ -89,10 +75,10 @@ func (z *ZerologAdapter) DebugCtx(ctx context.Context, msg string, args ...any) 
 		}
 	}
 	event := logger.Debug()
-	addFields(event, args...).Msg(msg)
+	z.addFields(event, args...).Msg(msg)
 }
 
-// InfoCtx logs at Info level with context
+// InfoCtx implements [Logger]
 func (z *ZerologAdapter) InfoCtx(ctx context.Context, msg string, args ...any) {
 	logger := z.l
 	if l := GetFromContext(ctx); l != nil {
@@ -101,10 +87,10 @@ func (z *ZerologAdapter) InfoCtx(ctx context.Context, msg string, args ...any) {
 		}
 	}
 	event := logger.Info()
-	addFields(event, args...).Msg(msg)
+	z.addFields(event, args...).Msg(msg)
 }
 
-// WarnCtx logs at Warn level with context
+// WarnCtx implements [Logger]
 func (z *ZerologAdapter) WarnCtx(ctx context.Context, msg string, args ...any) {
 	logger := z.l
 	if l := GetFromContext(ctx); l != nil {
@@ -113,10 +99,10 @@ func (z *ZerologAdapter) WarnCtx(ctx context.Context, msg string, args ...any) {
 		}
 	}
 	event := logger.Warn()
-	addFields(event, args...).Msg(msg)
+	z.addFields(event, args...).Msg(msg)
 }
 
-// ErrorCtx logs at Error level with context
+// ErrorCtx implements [Logger]
 func (z *ZerologAdapter) ErrorCtx(ctx context.Context, msg string, err error, args ...any) {
 	logger := z.l
 	if l := GetFromContext(ctx); l != nil {
@@ -125,40 +111,71 @@ func (z *ZerologAdapter) ErrorCtx(ctx context.Context, msg string, err error, ar
 		}
 	}
 	event := logger.Error().Err(err)
-	addFields(event, args...).Msg(msg)
+	z.addFields(event, args...).Msg(msg)
 }
 
-// With returns a new logger with additional fields
+// With implements [Logger]
 func (z *ZerologAdapter) With(args ...any) Logger {
 	ctx := z.l.With()
-	for i := 0; i < len(args); i += 2 {
-		if i+1 < len(args) {
-			if key, ok := args[i].(string); ok {
-				ctx = addContextField(ctx, key, args[i+1])
+
+	for i := 0; i < len(args); {
+		switch v := args[i].(type) {
+
+		case group:
+			ctx = ctx.Dict(v.Key, z.buildDict(v.Attrs...))
+			i++
+
+		case string:
+			if i+1 < len(args) {
+				ctx = z.addContextField(ctx, v, args[i+1])
+				i += 2
+			} else {
+				i++
 			}
+
+		default:
+			i++
 		}
 	}
+
 	return &ZerologAdapter{l: ctx.Logger()}
 }
 
 // Helper functions
 
-func addFields(event *zerolog.Event, args ...any) *zerolog.Event {
-	// Skip 2 Frame:
-	// 1. This method
-	// 2. Wrapper (Info, InfoCtx, etc...)
+func (z *ZerologAdapter) addFields(event *zerolog.Event, args ...any) *zerolog.Event {
+	// Skip:
+	// 1. addFields
+	// 2. wrapper (Info, InfoCtx, etc)
 	event.CallerSkipFrame(2)
-	for i := 0; i < len(args); i += 2 {
-		if i+1 < len(args) {
-			if key, ok := args[i].(string); ok {
-				event = addEventField(event, key, args[i+1])
+
+	for i := 0; i < len(args); {
+		switch v := args[i].(type) {
+
+		// -------- nested group --------
+		case group:
+			event = event.Dict(v.Key, z.buildDict(v.Attrs...))
+			i++
+
+		// -------- flat key-value --------
+		case string:
+			if i+1 < len(args) {
+				event = z.addEventField(event, v, args[i+1])
+				i += 2
+			} else {
+				i++ // malformed, ignore trailing key
 			}
+
+		// -------- unsupported --------
+		default:
+			i++ // ignore silently or panic (your choice)
 		}
 	}
+
 	return event
 }
 
-func addContextField(ctx zerolog.Context, key string, value any) zerolog.Context {
+func (z *ZerologAdapter) addContextField(ctx zerolog.Context, key string, value any) zerolog.Context {
 	switch v := value.(type) {
 	case string:
 		return ctx.Str(key, v)
@@ -183,7 +200,7 @@ func addContextField(ctx zerolog.Context, key string, value any) zerolog.Context
 	}
 }
 
-func addEventField(event *zerolog.Event, key string, value any) *zerolog.Event {
+func (z *ZerologAdapter) addEventField(event *zerolog.Event, key string, value any) *zerolog.Event {
 	switch v := value.(type) {
 	case string:
 		return event.Str(key, v)
@@ -206,4 +223,30 @@ func addEventField(event *zerolog.Event, key string, value any) *zerolog.Event {
 	default:
 		return event.Interface(key, v)
 	}
+}
+
+func (z *ZerologAdapter) buildDict(attrs ...any) *zerolog.Event {
+	d := zerolog.Dict()
+
+	for i := 0; i < len(attrs); {
+		switch v := attrs[i].(type) {
+
+		case group:
+			d = d.Dict(v.Key, z.buildDict(v.Attrs...))
+			i++
+
+		case string:
+			if i+1 < len(attrs) {
+				d = z.addEventField(d, v, attrs[i+1])
+				i += 2
+			} else {
+				i++
+			}
+
+		default:
+			i++
+		}
+	}
+
+	return d
 }

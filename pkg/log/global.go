@@ -2,8 +2,8 @@ package log
 
 import (
 	"context"
+	"io"
 	"log/slog"
-	"os"
 )
 
 // global is the package-level default logger instance.
@@ -11,10 +11,11 @@ import (
 //
 // This instance is used by all global logging functions (e.g., Info(), Error())
 // when no explicit logger or context-bound logger is available./ Default to slog
-var global Logger = defaultAdapter()
+var global Logger = NewSlogAdapter(false)
 
-func defaultAdapter() *SlogAdapter {
-	return &SlogAdapter{l: slog.New(slog.NewTextHandler(os.Stdout, nil))}
+// EmptyLog is log with io.Discard writer (no log output) for omitting logs on test files
+var EmptyLog *SlogAdapter = &SlogAdapter{
+	l: slog.New(slog.NewTextHandler(io.Discard, nil)),
 }
 
 // SetLogger replaces the global logger used by all package-level logging calls.
@@ -39,4 +40,16 @@ func InfoCtx(ctx context.Context, msg string, args ...any)  { global.InfoCtx(ctx
 func WarnCtx(ctx context.Context, msg string, args ...any)  { global.WarnCtx(ctx, msg, args...) }
 func ErrorCtx(ctx context.Context, msg string, err error, args ...any) {
 	global.ErrorCtx(ctx, msg, err, args...)
+}
+
+// group represents a nested log object.
+// Adapters decide how to render it.
+type group struct {
+	Key   string
+	Attrs []any
+}
+
+// Group creates a nested log group.
+func Group(key string, attrs ...any) group {
+	return group{Key: key, Attrs: attrs}
 }

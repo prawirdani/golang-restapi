@@ -36,6 +36,25 @@ func (v *ValidationError) Error() string {
 	return strings.Join(msgs, "; ")
 }
 
+func (v *ValidationError) Merge(vErr *ValidationError) {
+	if vErr == nil {
+		return
+	}
+
+	if len(vErr.Errors) > 0 {
+		v.Errors = append(v.Errors, vErr.Errors...)
+	}
+
+	if len(vErr.Details) > 0 {
+		if v.Details == nil {
+			v.Details = make(map[string][]string)
+		}
+		for field, messages := range vErr.Details {
+			v.Details[field] = append(v.Details[field], messages...)
+		}
+	}
+}
+
 // HasField checks if a specific field has validation errors
 func (v *ValidationError) HasField(field string) bool {
 	_, exists := v.Details[field]
@@ -91,51 +110,51 @@ func convertError(errs validator.ValidationErrors) *ValidationError {
 func buildErrorMessage(e validator.FieldError) string {
 	switch e.Tag() {
 	case "required":
-		return "This field is required"
+		return "this field is required"
 	case "email":
-		return "Must be a valid email address"
+		return "must be a valid email address"
 	case "min":
 		return buildMinMessage(e)
 	case "max":
 		return buildMaxMessage(e)
 	case "len":
-		return fmt.Sprintf("Must be exactly %s characters", e.Param())
+		return fmt.Sprintf("must be exactly %s characters", e.Param())
 	case "gt":
-		return fmt.Sprintf("Must be greater than %s", e.Param())
+		return fmt.Sprintf("must be greater than %s", e.Param())
 	case "gte":
-		return fmt.Sprintf("Must be greater than or equal to %s", e.Param())
+		return fmt.Sprintf("must be greater than or equal to %s", e.Param())
 	case "lt":
-		return fmt.Sprintf("Must be less than %s", e.Param())
+		return fmt.Sprintf("must be less than %s", e.Param())
 	case "lte":
-		return fmt.Sprintf("Must be less than or equal to %s", e.Param())
+		return fmt.Sprintf("must be less than or equal to %s", e.Param())
 	case "alpha":
-		return "Must contain only letters"
+		return "must contain only letters"
 	case "alphanum":
-		return "Must contain only letters and numbers"
+		return "must contain only letters and numbers"
 	case "numeric":
-		return "Must be a numeric value"
+		return "must be a numeric value"
 	case "url":
-		return "Must be a valid URL"
+		return "must be a valid URL"
 	case "uri":
-		return "Must be a valid URI"
+		return "must be a valid URI"
 	case "contains":
-		return fmt.Sprintf("Must contain '%s'", e.Param())
+		return fmt.Sprintf("must contain '%s'", e.Param())
 	case "containsany":
-		return fmt.Sprintf("Must contain at least one of: %s", e.Param())
+		return fmt.Sprintf("must contain at least one of: %s", e.Param())
 	case "excludes":
-		return fmt.Sprintf("Must not contain '%s'", e.Param())
+		return fmt.Sprintf("must not contain '%s'", e.Param())
 	case "startswith":
-		return fmt.Sprintf("Must start with '%s'", e.Param())
+		return fmt.Sprintf("must start with '%s'", e.Param())
 	case "endswith":
-		return fmt.Sprintf("Must end with '%s'", e.Param())
+		return fmt.Sprintf("must end with '%s'", e.Param())
 	case "oneof":
-		return fmt.Sprintf("Must be one of: %s", e.Param())
+		return fmt.Sprintf("must be one of: %s", e.Param())
 	case "uuid":
-		return "Must be a valid UUID"
+		return "must be a valid UUID"
 	case "datetime":
-		return fmt.Sprintf("Must be a valid datetime in format: %s", e.Param())
+		return fmt.Sprintf("must be a valid datetime in format: %s", e.Param())
 	default:
-		return fmt.Sprintf("Validation failed on '%s' tag", e.Tag())
+		return fmt.Sprintf("validation failed on '%s' tag", e.Tag())
 	}
 }
 
@@ -143,15 +162,15 @@ func buildErrorMessage(e validator.FieldError) string {
 func buildMinMessage(e validator.FieldError) string {
 	switch e.Kind() {
 	case reflect.String:
-		return fmt.Sprintf("Must be at least %s characters long", e.Param())
+		return fmt.Sprintf("must be at least %s characters long", e.Param())
 	case reflect.Slice, reflect.Array, reflect.Map:
-		return fmt.Sprintf("Must contain at least %s items", e.Param())
+		return fmt.Sprintf("must contain at least %s items", e.Param())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Float32, reflect.Float64:
-		return fmt.Sprintf("Must be at least %s", e.Param())
+		return fmt.Sprintf("must be at least %s", e.Param())
 	default:
-		return fmt.Sprintf("Must be at least %s", e.Param())
+		return fmt.Sprintf("must be at least %s", e.Param())
 	}
 }
 
@@ -159,14 +178,14 @@ func buildMinMessage(e validator.FieldError) string {
 func buildMaxMessage(e validator.FieldError) string {
 	switch e.Kind() {
 	case reflect.String:
-		return fmt.Sprintf("Must be at most %s characters long", e.Param())
+		return fmt.Sprintf("must be at most %s characters long", e.Param())
 	case reflect.Slice, reflect.Array, reflect.Map:
-		return fmt.Sprintf("Must contain at most %s items", e.Param())
+		return fmt.Sprintf("must contain at most %s items", e.Param())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Float32, reflect.Float64:
-		return fmt.Sprintf("Must be at most %s", e.Param())
+		return fmt.Sprintf("must be at most %s", e.Param())
 	default:
-		return fmt.Sprintf("Must be at most %s", e.Param())
+		return fmt.Sprintf("must be at most %s", e.Param())
 	}
 }

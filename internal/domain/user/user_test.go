@@ -8,50 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUser_Validate(t *testing.T) {
-	validUser := &User{
-		Name:     "John Doe",
-		Email:    "john@example.com",
-		Password: "hashedpassword",
-	}
-
-	tests := []struct {
-		name   string
-		modify func(*User)
-		err    error
-	}{
-		{
-			name:   "Valid user",
-			modify: func(u *User) {},
-			err:    nil,
-		},
-		{
-			name:   "Empty name",
-			modify: func(u *User) { u.Name = "" },
-			err:    ErrRequiredName,
-		},
-		{
-			name:   "Empty email",
-			modify: func(u *User) { u.Email = "" },
-			err:    ErrRequiredEmail,
-		},
-		{
-			name:   "Empty password",
-			modify: func(u *User) { u.Password = "" },
-			err:    ErrRequiredPassword,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			user := *validUser
-			tt.modify(&user)
-			err := user.Validate()
-			require.ErrorIs(t, err, tt.err)
-		})
-	}
-}
-
 func TestNew(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -102,7 +58,7 @@ func TestNew(t *testing.T) {
 			emailInput:    "john@example.com",
 			phoneInput:    "123456789",
 			passwordInput: "hashedpassword",
-			expectError:   ErrRequiredName,
+			expectError:   ErrValidation,
 			validateUser:  nil,
 		},
 		{
@@ -111,7 +67,7 @@ func TestNew(t *testing.T) {
 			emailInput:    "",
 			phoneInput:    "123456789",
 			passwordInput: "hashedpassword",
-			expectError:   ErrRequiredEmail,
+			expectError:   ErrValidation,
 			validateUser:  nil,
 		},
 		{
@@ -120,7 +76,7 @@ func TestNew(t *testing.T) {
 			emailInput:    "john@example.com",
 			phoneInput:    "123456789",
 			passwordInput: "",
-			expectError:   ErrRequiredPassword,
+			expectError:   ErrValidation,
 			validateUser:  nil,
 		},
 		{

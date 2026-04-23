@@ -9,27 +9,20 @@ import (
 	"time"
 
 	"github.com/prawirdani/golang-restapi/pkg/strings"
-	"github.com/prawirdani/golang-restapi/pkg/validator"
 )
 
 type RegisterInput struct {
-	Name           string `json:"name"            validate:"required"`
-	Email          string `json:"email"           validate:"required,email"`
-	Phone          string `json:"phone"`
-	Password       string `json:"password"        validate:"required,min=8"`
-	RepeatPassword string `json:"repeat_password" validate:"required,eqfield=Password,min=8"`
+	Name     string `json:"name"     validate:"required"`
+	Email    string `json:"email"    validate:"required,email"`
+	Phone    string `json:"phone"`
+	Password string `json:"password" validate:"required,min=8"`
 }
 
-// Validate implements [handler.JSONRequestBody]
-func (r *RegisterInput) Validate() error {
-	return validator.Struct(r)
-}
-
-// Sanitize implements [handler.JSONRequestBody]
+// Sanitize implements [validator.Sanitizer]
 func (r *RegisterInput) Sanitize() error {
-	r.Email = strings.TrimSpaces(r.Email)
+	r.Email = strings.TrimSpacesConcat(r.Email)
 	r.Name = strings.TrimSpacesConcat(r.Name)
-	r.Phone = strings.TrimSpaces(r.Phone)
+	r.Phone = strings.TrimSpacesConcat(r.Phone)
 	return nil
 }
 
@@ -39,20 +32,18 @@ type LoginInput struct {
 	UserAgent string
 }
 
-type ForgotPasswordInput struct {
+type RecoverPasswordInput struct {
 	Email string `json:"email" validate:"required,email"`
 }
 
 type ResetPasswordInput struct {
-	Token             string `json:"token"               validate:"required"`
-	NewPassword       string `json:"new_password"        validate:"required,min=8"`
-	RepeatNewPassword string `json:"repeat_new_password" validate:"required,eqfield=NewPassword"`
+	Token       string `json:"token"        validate:"required"`
+	NewPassword string `json:"new_password" validate:"required,min=8"`
 }
 
 type ChangePasswordInput struct {
-	Password          string
-	NewPassword       string `json:"new_password"        validate:"required,min=8"`
-	RepeatNewPassword string `json:"repeat_new_password" validate:"required,eqfield=NewPassword"`
+	Password    string `json:"password"     validate:"required"`
+	NewPassword string `json:"new_password" validate:"required,min=8"`
 }
 
 type TokenPair struct {
@@ -60,7 +51,7 @@ type TokenPair struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-type ResetPasswordEmailMessage struct {
+type PasswordRecoveryEmailMessage struct {
 	To       string        `json:"to"`         // Recipient's email address
 	Name     string        `json:"name"`       // Recipient's name
 	ResetURL string        `json:"reset_url"`  // Link for resetting the password

@@ -9,7 +9,7 @@ type Auth struct {
 	JwtSecret                 string
 	JwtTTL                    time.Duration
 	SessionTTL                time.Duration
-	ResetPasswordTTL          time.Duration
+	PasswordRecoveryTokenTTL  time.Duration
 	ResetPasswordFormEndpoint string
 }
 
@@ -27,9 +27,9 @@ func (t *Auth) Parse() error {
 			t.SessionTTL = d
 		}
 	}
-	if val := os.Getenv("AUTH_RESET_PASSWORD_TTL"); val != "" {
+	if val := os.Getenv("AUTH_PASSWORD_RECOVERY_TOKEN_TTL"); val != "" {
 		if d, err := time.ParseDuration(val); err == nil {
-			t.ResetPasswordTTL = d
+			t.PasswordRecoveryTokenTTL = d
 		}
 	}
 	return nil

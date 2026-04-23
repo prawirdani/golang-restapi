@@ -22,7 +22,7 @@ func main() {
 	if err != nil {
 		stdlog.Fatal("Failed to load config", err)
 	}
-	log.SetLogger(log.NewZerologAdapter(cfg))
+	log.SetLogger(log.NewZerologAdapter(cfg.IsProduction()))
 
 	rmqconn, err := initRabbitMQ(cfg.RabbitMQURL)
 	if err != nil {
@@ -59,7 +59,7 @@ func initRabbitMQ(url string) (*amqp.Connection, error) {
 
 	if err := rabbitmq.SetupTopologies(
 		conn,
-		rabbitmq.ResetPasswordEmailTopology,
+		rabbitmq.PasswordRecoveryEmailTopology,
 	); err != nil {
 		return nil, fmt.Errorf("setup topologies: %w", err)
 	}
@@ -84,8 +84,8 @@ func startMessageConsumers(
 	go func() {
 		if err := consumerClient.Consume(
 			ctx,
-			rabbitmq.ResetPasswordEmailTopology,
-			authConsumers.EmailResetPasswordHandler,
+			rabbitmq.PasswordRecoveryEmailTopology,
+			authConsumers.EmailPasswordRecoveryHandler,
 		); err != nil {
 			errCh <- err
 		}

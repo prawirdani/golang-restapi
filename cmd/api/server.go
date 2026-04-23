@@ -7,8 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	httptransport "github.com/prawirdani/golang-restapi/internal/transport/http"
-	httperr "github.com/prawirdani/golang-restapi/internal/transport/http/error"
+	httpx "github.com/prawirdani/golang-restapi/internal/transport/http"
 	"github.com/prawirdani/golang-restapi/internal/transport/http/handler"
 	"github.com/prawirdani/golang-restapi/internal/transport/http/middleware"
 	"github.com/prawirdani/golang-restapi/pkg/log"
@@ -43,8 +42,8 @@ func NewServer(container *Container) (*Server, error) {
 	}
 
 	// Apply common middlewares
-	router.Use(middleware.MaxBodySizeMiddleware(handler.MaxBodySize))
-	router.Use(handler.Middleware(middleware.PanicRecoverer))
+	router.Use(middleware.MaxBodySizeMiddleware(httpx.MaxBodySize))
+	router.Use(httpx.Middleware(middleware.PanicRecoverer))
 	router.Use(middleware.Gzip)
 	router.Use(middleware.Cors(
 		container.Config.Cors.Origins,
@@ -52,26 +51,17 @@ func NewServer(container *Container) (*Server, error) {
 		!container.Config.IsProduction(),
 	))
 
-	// Custom 404 and 405 handlers
-	router.NotFound(handler.Handler(func(c *handler.Context) error {
-		return httperr.New(
-			http.StatusNotFound,
-			"the requested resource could not be found",
-			nil,
-		)
+	router.NotFound(httpx.Handler(func(c *httpx.Context) error {
+		return httpx.ErrNotFoundHandler
 	}))
 
-	router.MethodNotAllowed(handler.Handler(func(c *handler.Context) error {
-		return httperr.New(
-			http.StatusMethodNotAllowed,
-			"the method is not allowed for the requested url",
-			nil,
-		)
+	router.MethodNotAllowed(httpx.Handler(func(c *httpx.Context) error {
+		return httpx.ErrMethodNotAllowedHandler
 	}))
 
 	// Health check route
-	router.Get("/status", handler.Handler(func(c *handler.Context) error {
-		return c.JSON(http.StatusOK, handler.Body{
+	router.Get("/status", httpx.Handler(func(c *httpx.Context) error {
+		return c.JSON(http.StatusOK, httpx.Body{
 			Message: "services up and running",
 		})
 	}))
@@ -153,14 +143,14 @@ func (s *Server) setupHandlers() {
 	// Initialize Handlers
 	userHandler := handler.NewUserHandler(svcs.UserService)
 	authHandler := handler.NewAuthHandler(s.container.Config, svcs.AuthService, svcs.UserService)
-
-	authMiddleware := handler.Middleware(middleware.Auth(s.container.Config.Auth.JwtSecret))
+	authMiddleware := httpx.Middleware(middleware.Auth(s.container.Config.Auth.JwtSecret))
 
 	// Register API routes
 	s.router.Route("/api", func(r chi.Router) {
-		r.Route("/v1", func(r chi.Router) {
-			httptransport.RegisterUserRoutes(r, userHandler, authMiddleware)
-			httptransport.RegisterAuthRoutes(r, authHandler, authMiddleware)
+		RegisterAuthRoutes(r, authHandler, authMiddleware)
+
+		r.With(authMiddleware).Route("/", func(r chi.Router) {
+			RegisterUserRoutes(r, userHandler)
 		})
 	})
 }

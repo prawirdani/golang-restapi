@@ -8,21 +8,16 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"github.com/prawirdani/golang-restapi/config"
 )
 
 // ===================== Slog Adapter =====================
-
 type SlogAdapter struct {
 	l *slog.Logger
 }
 
-func NewSlogAdapter(cfg *config.Config) *SlogAdapter {
-	isProd := cfg.IsProduction()
-
+func NewSlogAdapter(production bool) *SlogAdapter {
 	level := slog.LevelDebug
-	if isProd {
+	if production {
 		level = slog.LevelInfo
 	}
 
@@ -49,15 +44,8 @@ func NewSlogAdapter(cfg *config.Config) *SlogAdapter {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, handlerOpts))
-
-	if isProd {
-		logger = slog.New(slog.NewJSONHandler(os.Stdout, handlerOpts)).With(
-			slog.Group("app",
-				slog.String("name", cfg.App.Name),
-				slog.String("version", cfg.App.Version),
-				slog.String("env", string(cfg.App.Environment)),
-			),
-		)
+	if production {
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, handlerOpts))
 	}
 
 	return &SlogAdapter{l: logger}
@@ -102,7 +90,9 @@ func (s *SlogAdapter) ErrorCtx(ctx context.Context, msg string, err error, args 
 }
 
 func (s *SlogAdapter) With(args ...any) Logger {
-	return &SlogAdapter{l: s.l.With(args...)}
+	return &SlogAdapter{
+		l: s.l.With(normalizeSlogArgs(args)...),
+	}
 }
 
 func (s *SlogAdapter) logWithSkip(
@@ -116,18 +106,16 @@ func (s *SlogAdapter) logWithSkip(
 		return
 	}
 
-	// Get caller information
 	var pcs [1]uintptr
-	// skip 2 to capture the correct caller frame:
-	// Frame 1: runtime.Callers (this call)
-	// Frame 2: logWithSkip (this method)
+	// Frames:
+	// 1 runtime.Callers
+	// 2 logWithSkip
+	// + skip
 	runtime.Callers(skip+2, pcs[:])
 
-	// Create a new record with proper source
 	r := slog.NewRecord(time.Now(), level, msg, pcs[0])
-	r.Add(args...)
+	r.Add(normalizeSlogArgs(args)...)
 
-	// Call handler with the record - this preserves With/WithGroup
 	_ = s.l.Handler().Handle(ctx, r)
 }
 
@@ -139,13 +127,49 @@ func (s *SlogAdapter) buildContextualLogger(
 ) {
 	if l := GetFromContext(ctx); l != nil {
 		if sa, ok := l.(*SlogAdapter); ok {
-			// addtional 3 skips to capture the correct caller frame:
-			// Frame 3: this function
-			// Frame 4: wrapper (InfoCtx, DebugCtx ...)
-			// Frame 5: Actual Caller
+			// Frames:
+			// 3 buildContextualLogger
+			// 4 wrapper (InfoCtx, DebugCtx, ...)
+			// 5 actual caller
 			sa.logWithSkip(ctx, level, 3, msg, args...)
 			return
 		}
 	}
+
 	s.logWithSkip(ctx, level, 3, msg, args...)
+}
+
+func normalizeSlogArgs(args []any) []any {
+	out := make([]any, 0, len(args))
+
+	for i := 0; i < len(args); {
+		switch v := args[i].(type) {
+
+		// -------- nested group --------
+		case group:
+			out = append(out, slog.Group(v.Key, normalizeSlogArgs(v.Attrs)...))
+			i++
+
+		// -------- slog native --------
+		case slog.Attr:
+			out = append(out, v)
+			i++
+
+		// -------- flat key-value --------
+		case string:
+			if i+1 < len(args) {
+				out = append(out, slog.Any(v, args[i+1]))
+				i += 2
+			} else {
+				i++
+			}
+
+		// -------- unsupported --------
+		default:
+			out = append(out, slog.Any("value", v))
+			i++
+		}
+	}
+
+	return out
 }

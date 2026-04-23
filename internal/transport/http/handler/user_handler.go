@@ -1,13 +1,11 @@
 package handler
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/prawirdani/golang-restapi/internal/domain/auth"
 	"github.com/prawirdani/golang-restapi/internal/domain/user"
-	httperr "github.com/prawirdani/golang-restapi/internal/transport/http/error"
-	"github.com/prawirdani/golang-restapi/internal/transport/http/uploader"
+	httpx "github.com/prawirdani/golang-restapi/internal/transport/http"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 
@@ -21,28 +19,30 @@ func NewUserHandler(userService *user.Service) *UserHandler {
 	}
 }
 
-const ImageFormKey = "image"
+func (h *UserHandler) ChangeProfilePicture(c *httpx.Context) error {
+	if err := c.EnsureMultipartForm(); err != nil {
+		return err
+	}
+	defer c.CleanupMultipart()
 
-func (h *UserHandler) ChangeProfilePictureHandler(c *Context) error {
-	fh, err := c.FormFile(ImageFormKey)
+	fh, err := c.FormFile(httpx.ImageFormKey)
 	if err != nil {
-		if isMissingFileError(err) {
-			return httperr.New(
-				http.StatusBadRequest,
-				fmt.Sprintf("missing required file '%s'", ImageFormKey),
-				nil,
-			)
+		if httpx.IsMissingFileError(err) {
+			return httpx.ErrMultipartForm.SetDetails(map[string]any{
+				"key":     httpx.ImageFormKey,
+				"message": "profile image is required",
+			})
 		}
 		log.ErrorCtx(c.Context(), "Failed to parse profile image form file", err)
 		return err
 	}
 
-	file := uploader.NewParsedFile(fh)
+	file := httpx.NewParsedFile(fh)
 	defer file.Close()
 
-	if err := uploader.ValidateFile(c.Context(), file, uploader.ValidationRules{
-		MaxSize:      1 << 20, // 2MB,
-		AllowedMIMEs: uploader.ImageMIMEs,
+	if err := httpx.ValidateFile(c.Context(), file, httpx.ValidationRules{
+		MaxSize:      2 << 20, // 2MB,
+		AllowedMIMEs: httpx.ImageMIMEs,
 	}); err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ func (h *UserHandler) ChangeProfilePictureHandler(c *Context) error {
 		return err
 	}
 
-	return c.JSON(http.StatusOK, &Body{
-		Message: "Profile picture updated!",
+	return c.JSON(http.StatusOK, &httpx.Body{
+		Message: "profile picture updated!",
 	})
 }

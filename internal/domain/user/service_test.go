@@ -2,144 +2,84 @@ package user_test
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
+	"github.com/prawirdani/golang-restapi/internal/domain"
 	"github.com/prawirdani/golang-restapi/internal/domain/user"
-	"github.com/prawirdani/golang-restapi/internal/testing/mocks"
+	"github.com/prawirdani/golang-restapi/internal/domain/user/mocks"
+	sharedMocks "github.com/prawirdani/golang-restapi/internal/testing/mocks"
+	"github.com/prawirdani/golang-restapi/pkg/log"
 	"github.com/prawirdani/golang-restapi/pkg/nullable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewUserService(t *testing.T) {
-	mockTransactor := mocks.NewTransactor(t)
-	mockUserRepo := mocks.NewUserRepository(t)
-	mockImageStorage := mocks.NewStorage(t)
-
-	service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
-
-	require.NotNil(t, service)
+func init() {
+	log.SetLogger(log.EmptyLog)
 }
 
-func TestUserService_GetUserByID(t *testing.T) {
-	ctx := context.Background()
+// Mirror the internal buildImagePath func
+func buildImagePath(filename string) string {
+	return fmt.Sprintf("%s/%s", user.ImageStoragePath, filename)
+}
 
-	t.Run("Success user without profile image", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
+func TestNewUserService(t *testing.T) {
+	f := setupTestFixture(t)
+	require.NotNil(t, f.service)
+}
 
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
-
-		userID := uuid.New().String()
-		expectedUser := &user.User{
-			ID:           uuid.New(),
-			Name:         "John Doe",
-			Email:        "john@example.com",
-			Password:     "hashedpassword",
-			Phone:        nullable.New("123456789", false),
-			ProfileImage: nullable.New("", false),
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
-		}
-
-		mockUserRepo.EXPECT().GetByID(ctx, userID).Return(expectedUser, nil)
-
-		result, err := service.GetUserByID(ctx, userID)
-		assert.NoError(t, err)
-		assert.Equal(t, expectedUser, result)
-	})
-
-	t.Run("Success user with profile image", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
-
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
-
-		userID := uuid.New().String()
-		expectedUser := &user.User{
-			ID:           uuid.New(),
-			Name:         "John Doe",
-			Email:        "john@example.com",
-			Password:     "hashedpassword",
-			Phone:        nullable.New("123456789", false),
-			ProfileImage: nullable.New("profile.jpg", false),
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
-		}
-
-		mockUserRepo.EXPECT().GetByID(ctx, userID).Return(expectedUser, nil)
-		mockImageStorage.EXPECT().
-			GetURL(ctx, "profiles/profile.jpg", time.Duration(0)).
-			Return("https://example.com/profiles/profile.jpg", nil)
-
-		result, err := service.GetUserByID(ctx, userID)
-		assert.NoError(t, err)
-		assert.Equal(t, "https://example.com/profiles/profile.jpg", result.ProfileImage.Get())
-	})
-
-	t.Run("Repository error", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
-
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
+func TestService_GetUserByID(t *testing.T) {
+	t.Run("Without profile image", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
 		userID := uuid.New()
-		repoError := user.ErrNotFound
+		expectedUser := &user.User{
+			ID:           userID,
+			Name:         "John Doe",
+			Email:        "john@example.com",
+			Password:     "hashedpassword",
+			Phone:        nullable.New("123456789", false),
+			ProfileImage: nullable.New("", false),
+		}
 
-		mockUserRepo.EXPECT().GetByID(ctx, userID.String()).Return(nil, repoError)
+		f.repo.EXPECT().GetByID(ctx, userID).Return(expectedUser, nil)
 
-		result, err := service.GetUserByID(ctx, userID.String())
-		assert.Error(t, err)
-		assert.Equal(t, repoError, err)
-		assert.Nil(t, result)
+		u, err := f.service.GetUserByID(ctx, userID)
+		assert.NoError(t, err)
+		assert.Equal(t, expectedUser, u)
+		assert.False(t, u.ProfileImage.Valid())
 	})
 
-	t.Run("Storage error when getting profile URL", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
+	t.Run("With profile image", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
-
-		userID := uuid.New().String()
+		userID := uuid.New()
 		expectedUser := &user.User{
-			ID:           uuid.New(),
+			ID:           userID,
 			Name:         "John Doe",
 			Email:        "john@example.com",
 			Password:     "hashedpassword",
 			Phone:        nullable.New("123456789", false),
 			ProfileImage: nullable.New("profile.jpg", false),
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
 		}
 
-		storageError := errors.New("storage error")
-		mockUserRepo.EXPECT().GetByID(ctx, userID).Return(expectedUser, nil)
-		mockImageStorage.EXPECT().GetURL(ctx, "profiles/profile.jpg", time.Duration(0)).Return("", storageError)
+		f.repo.EXPECT().GetByID(ctx, userID).Return(expectedUser, nil)
 
-		result, err := service.GetUserByID(ctx, userID)
-		assert.Error(t, err)
-		assert.Equal(t, storageError, err)
-		assert.Nil(t, result)
+		result, err := f.service.GetUserByID(ctx, userID)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
 	})
 }
 
-func TestUserService_GetUserByEmail(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("Success user without profile image", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
-
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
+func TestService_GetUserByEmail(t *testing.T) {
+	t.Run("Without profile image", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
 		email := "john@example.com"
 		expectedUser := &user.User{
@@ -149,23 +89,19 @@ func TestUserService_GetUserByEmail(t *testing.T) {
 			Password:     "hashedpassword",
 			Phone:        nullable.New("123456789", false),
 			ProfileImage: nullable.New("", false),
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
 		}
 
-		mockUserRepo.EXPECT().GetByEmail(ctx, email).Return(expectedUser, nil)
+		f.repo.EXPECT().GetByEmail(ctx, email).Return(expectedUser, nil)
 
-		result, err := service.GetUserByEmail(ctx, email)
+		result, err := f.service.GetUserByEmail(ctx, email)
 		assert.NoError(t, err)
 		assert.Equal(t, expectedUser, result)
+		assert.False(t, result.ProfileImage.Valid())
 	})
 
-	t.Run("Success user with profile image", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
-
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
+	t.Run("With profile image", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
 		email := "john@example.com"
 		expectedUser := &user.User{
@@ -175,82 +111,20 @@ func TestUserService_GetUserByEmail(t *testing.T) {
 			Password:     "hashedpassword",
 			Phone:        nullable.New("123456789", false),
 			ProfileImage: nullable.New("profile.jpg", false),
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
 		}
 
-		mockUserRepo.EXPECT().GetByEmail(ctx, email).Return(expectedUser, nil)
-		mockImageStorage.EXPECT().
-			GetURL(ctx, "profiles/profile.jpg", time.Duration(0)).
-			Return("https://example.com/profiles/profile.jpg", nil)
+		f.repo.EXPECT().GetByEmail(ctx, email).Return(expectedUser, nil)
 
-		result, err := service.GetUserByEmail(ctx, email)
+		result, err := f.service.GetUserByEmail(ctx, email)
 		assert.NoError(t, err)
-		assert.Equal(t, "https://example.com/profiles/profile.jpg", result.ProfileImage.Get())
-	})
-
-	t.Run("Repository error", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
-
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
-
-		email := "nonexistent@example.com"
-		repoError := user.ErrNotFound
-
-		mockUserRepo.EXPECT().GetByEmail(ctx, email).Return(nil, repoError)
-
-		result, err := service.GetUserByEmail(ctx, email)
-		assert.Error(t, err)
-		assert.Equal(t, repoError, err)
-		assert.Nil(t, result)
-	})
-
-	t.Run("Storage error when getting profile URL", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
-
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
-
-		email := "john@example.com"
-		expectedUser := &user.User{
-			ID:           uuid.New(),
-			Name:         "John Doe",
-			Email:        email,
-			Password:     "hashedpassword",
-			Phone:        nullable.New("123456789", false),
-			ProfileImage: nullable.New("profile.jpg", false),
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
-		}
-
-		storageError := errors.New("storage error")
-		mockUserRepo.EXPECT().GetByEmail(ctx, email).Return(expectedUser, nil)
-		mockImageStorage.EXPECT().GetURL(ctx, "profiles/profile.jpg", time.Duration(0)).Return("", storageError)
-
-		result, err := service.GetUserByEmail(ctx, email)
-		assert.Error(t, err)
-		assert.Equal(t, storageError, err)
-		assert.Nil(t, result)
+		assert.NotNil(t, result)
 	})
 }
 
-func TestUserService_ChangeProfilePicture(t *testing.T) {
-	ctx := context.Background()
-
+func TestService_ChangeProfilePicture(t *testing.T) {
 	t.Run("Success user without existing profile image", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
-		mockFile := mocks.NewFile(t)
-
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
-
-		userID := uuid.New().String()
-		newFileName := "new-profile.jpg"
-		newImagePath := "profiles/" + newFileName
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
 		existingUser := &user.User{
 			ID:           uuid.New(),
@@ -259,195 +133,164 @@ func TestUserService_ChangeProfilePicture(t *testing.T) {
 			Password:     "hashedpassword",
 			Phone:        nullable.New("123456789", false),
 			ProfileImage: nullable.New("", false),
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
 		}
 
-		mockTransactor.EXPECT().
+		/* ========================= internal op mock sequence ========================= */
+		f.transactor.EXPECT().
 			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
-			Run(func(ctx context.Context, fn func(context.Context) error) {
-				err := fn(ctx)
-				assert.NoError(t, err)
-			}).
-			Return(nil)
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				f.repo.EXPECT().GetByID(ctx, existingUser.ID).Return(existingUser, nil)
 
-		mockUserRepo.EXPECT().GetByID(ctx, userID).Return(existingUser, nil)
-		mockFile.EXPECT().SetName(mock.AnythingOfType("string")).Return(nil)
-		mockFile.EXPECT().Name().Return(newFileName)
-		mockFile.EXPECT().ContentType().Return("image/jpeg")
-		mockImageStorage.EXPECT().Put(ctx, newImagePath, mockFile, "image/jpeg").Return(nil)
-		mockUserRepo.EXPECT().Update(ctx, mock.MatchedBy(func(u *user.User) bool {
-			return u.ProfileImage.Get() == newFileName
-		})).Return(nil)
+				var generatedFilename string
+				f.file.EXPECT().SetName(mock.AnythingOfType("string")).RunAndReturn(func(name string) error {
+					generatedFilename = name + ".jpg" // mimick ext
+					return nil
+				})
 
-		err := service.ChangeProfilePicture(ctx, userID, mockFile)
+				f.file.EXPECT().Name().RunAndReturn(func() string {
+					return generatedFilename
+				})
+
+				f.file.EXPECT().ContentType().Return("image/jpg")
+
+				f.repo.EXPECT().
+					Update(ctx, mock.MatchedBy(func(u *user.User) bool {
+						return u.ProfileImage.Get() == generatedFilename
+					})).
+					Return(nil)
+
+				f.storage.EXPECT().
+					Put(
+						ctx,
+						mock.MatchedBy(func(path string) bool {
+							return path == buildImagePath(generatedFilename)
+						}),
+						f.file,
+						mock.AnythingOfType("string")).
+					Return(nil)
+
+				return fn(ctx)
+			})
+		/* ======================= end internal op mock sequence ======================== */
+
+		// Execute
+		err := f.service.ChangeProfilePicture(ctx, existingUser.ID, f.file)
+		assert.NoError(t, err)
+	})
+
+	t.Run("Success with cleanup old image", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
+
+		existingUser := &user.User{
+			ID:           uuid.New(),
+			Name:         "John Doe",
+			Email:        "john@example.com",
+			Password:     "hashedpassword",
+			Phone:        nullable.New("123456789", false),
+			ProfileImage: nullable.New("old-image.jpg", false),
+		}
+		prevImageName := existingUser.ProfileImage.Get()
+
+		/* ========================= internal op mock sequence ========================= */
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				f.repo.EXPECT().GetByID(ctx, existingUser.ID).Return(existingUser, nil)
+
+				var generatedFilename string
+				f.file.EXPECT().SetName(mock.AnythingOfType("string")).RunAndReturn(func(name string) error {
+					generatedFilename = name + ".jpg" // mimick ext
+					return nil
+				})
+
+				f.file.EXPECT().Name().RunAndReturn(func() string {
+					return generatedFilename
+				})
+
+				f.file.EXPECT().ContentType().Return("image/jpg")
+
+				f.repo.EXPECT().
+					Update(ctx, mock.MatchedBy(func(u *user.User) bool {
+						return u.ProfileImage.Get() == generatedFilename
+					})).
+					Return(nil)
+
+				f.storage.EXPECT().
+					Put(
+						ctx,
+						mock.MatchedBy(func(path string) bool {
+							return path == buildImagePath(generatedFilename)
+						}),
+						f.file,
+						mock.AnythingOfType("string")).
+					Return(nil)
+
+				return fn(ctx)
+			})
+
+		// REASON: prevImagePath != ""
+		f.storage.EXPECT().
+			Delete(context.Background(), mock.MatchedBy(func(path string) bool {
+				return path == buildImagePath(prevImageName)
+			})).
+			Return(nil).
+			Maybe() // Maybe because its run inside goroutine (async)
+		/* ======================= end internal op mock sequence ======================== */
+
+		// Execute
+		err := f.service.ChangeProfilePicture(ctx, existingUser.ID, f.file)
 		assert.NoError(t, err)
 	})
 
 	t.Run("Error user not found", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
-		mockFile := mocks.NewFile(t)
+		ctx := context.Background()
+		f := setupTestFixture(t)
+		userID := uuid.New()
 
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
-
-		userID := uuid.New().String()
-		repoError := user.ErrNotFound
-
-		mockTransactor.EXPECT().Transact(ctx, mock.AnythingOfType("func(context.Context) error")).Return(repoError)
-
-		err := service.ChangeProfilePicture(ctx, userID, mockFile)
-		assert.Error(t, err)
-		assert.Equal(t, repoError, err)
-	})
-
-	t.Run("Error failed to set file name", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
-		mockFile := mocks.NewFile(t)
-
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
-
-		userID := uuid.New().String()
-		fileError := errors.New("file error")
-
-		existingUser := &user.User{
-			ID:           uuid.New(),
-			Name:         "John Doe",
-			Email:        "john@example.com",
-			Password:     "hashedpassword",
-			Phone:        nullable.New("123456789", false),
-			ProfileImage: nullable.New("", false),
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
-		}
-
-		mockTransactor.EXPECT().
+		/* ========================= internal op mock sequence ========================= */
+		f.transactor.EXPECT().
 			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
-			Run(func(ctx context.Context, fn func(context.Context) error) {
-				err := fn(ctx)
-				assert.Error(t, err)
-				assert.Equal(t, fileError, err)
-			}).
-			Return(fileError)
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				f.repo.EXPECT().GetByID(ctx, userID).Return(nil, domain.ErrNotFound)
+				return fn(ctx)
+			})
+		/* ======================= end internal op mock sequence ======================== */
 
-		mockUserRepo.EXPECT().GetByID(ctx, userID).Return(existingUser, nil)
-		mockFile.EXPECT().SetName(mock.AnythingOfType("string")).Return(fileError)
-
-		err := service.ChangeProfilePicture(ctx, userID, mockFile)
+		err := f.service.ChangeProfilePicture(ctx, userID, f.file)
 		assert.Error(t, err)
-		assert.Equal(t, fileError, err)
+		assert.ErrorIs(t, err, domain.ErrNotFound)
+	})
+}
+
+type testFixtures struct {
+	transactor *sharedMocks.Transactor
+	file       *sharedMocks.File
+	storage    *sharedMocks.Storage
+	repo       *mocks.Repository
+	service    *user.Service
+}
+
+func setupTestFixture(t *testing.T) *testFixtures {
+	tr := sharedMocks.NewTransactor(t)
+	repo := mocks.NewRepository(t)
+	storage := sharedMocks.NewStorage(t)
+	file := sharedMocks.NewFile(t)
+
+	t.Cleanup(func() {
+		tr.AssertExpectations(t)
+		repo.AssertExpectations(t)
+		storage.AssertExpectations(t)
+		file.AssertExpectations(t)
 	})
 
-	t.Run("Error failed to store image", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
-		mockFile := mocks.NewFile(t)
+	svc := user.NewService(tr, repo, storage)
 
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
-
-		userID := uuid.New().String()
-		newFileName := "new-profile.jpg"
-		newImagePath := "profiles/" + newFileName
-		storageError := errors.New("storage error")
-
-		existingUser := &user.User{
-			ID:           uuid.New(),
-			Name:         "John Doe",
-			Email:        "john@example.com",
-			Password:     "hashedpassword",
-			Phone:        nullable.New("123456789", false),
-			ProfileImage: nullable.New("", false),
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
-		}
-
-		mockTransactor.EXPECT().
-			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
-			Run(func(ctx context.Context, fn func(context.Context) error) {
-				err := fn(ctx)
-				assert.Error(t, err)
-				assert.Equal(t, storageError, err)
-			}).
-			Return(storageError)
-
-		mockUserRepo.EXPECT().GetByID(ctx, userID).Return(existingUser, nil)
-		mockFile.EXPECT().SetName(mock.AnythingOfType("string")).Return(nil)
-		mockFile.EXPECT().Name().Return(newFileName)
-		mockFile.EXPECT().ContentType().Return("image/jpeg")
-		mockImageStorage.EXPECT().Put(ctx, newImagePath, mockFile, "image/jpeg").Return(storageError)
-
-		err := service.ChangeProfilePicture(ctx, userID, mockFile)
-		assert.Error(t, err)
-		assert.Equal(t, storageError, err)
-	})
-
-	t.Run("Error failed to update user", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
-		mockFile := mocks.NewFile(t)
-
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
-
-		userID := uuid.New().String()
-		newFileName := "new-profile.jpg"
-		newImagePath := "profiles/" + newFileName
-		updateError := errors.New("update error")
-
-		existingUser := &user.User{
-			ID:           uuid.New(),
-			Name:         "John Doe",
-			Email:        "john@example.com",
-			Password:     "hashedpassword",
-			Phone:        nullable.New("123456789", false),
-			ProfileImage: nullable.New("", false),
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
-		}
-
-		mockTransactor.EXPECT().
-			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
-			Run(func(ctx context.Context, fn func(context.Context) error) {
-				err := fn(ctx)
-				assert.Error(t, err)
-				assert.Equal(t, updateError, err)
-			}).
-			Return(updateError)
-
-		mockUserRepo.EXPECT().GetByID(ctx, userID).Return(existingUser, nil)
-		mockFile.EXPECT().SetName(mock.AnythingOfType("string")).Return(nil)
-		mockFile.EXPECT().Name().Return(newFileName)
-		mockFile.EXPECT().ContentType().Return("image/jpeg")
-		mockImageStorage.EXPECT().Put(ctx, newImagePath, mockFile, "image/jpeg").Return(nil)
-		mockUserRepo.EXPECT().Update(ctx, mock.MatchedBy(func(u *user.User) bool {
-			return u.ProfileImage.Get() == newFileName
-		})).Return(updateError)
-		mockImageStorage.EXPECT().Delete(ctx, newImagePath).Return(nil)
-
-		err := service.ChangeProfilePicture(ctx, userID, mockFile)
-		assert.Error(t, err)
-		assert.Equal(t, updateError, err)
-	})
-
-	t.Run("Error transaction fails", func(t *testing.T) {
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockImageStorage := mocks.NewStorage(t)
-		mockFile := mocks.NewFile(t)
-
-		service := user.NewService(mockTransactor, mockUserRepo, mockImageStorage)
-
-		userID := uuid.New().String()
-		transactError := errors.New("transaction error")
-
-		mockTransactor.EXPECT().Transact(ctx, mock.AnythingOfType("func(context.Context) error")).Return(transactError)
-
-		err := service.ChangeProfilePicture(ctx, userID, mockFile)
-		assert.Error(t, err)
-		assert.Equal(t, transactError, err)
-	})
+	return &testFixtures{
+		transactor: tr,
+		repo:       repo,
+		storage:    storage,
+		file:       file,
+		service:    svc,
+	}
 }

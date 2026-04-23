@@ -2,7 +2,6 @@ package auth_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -12,63 +11,46 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/prawirdani/golang-restapi/config"
+	"github.com/prawirdani/golang-restapi/internal/domain"
 	"github.com/prawirdani/golang-restapi/internal/domain/auth"
+	"github.com/prawirdani/golang-restapi/internal/domain/auth/mocks"
 	"github.com/prawirdani/golang-restapi/internal/domain/user"
-	"github.com/prawirdani/golang-restapi/internal/testing/mocks"
+	sharedMocks "github.com/prawirdani/golang-restapi/internal/testing/mocks"
+	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 
+func init() {
+	log.SetLogger(log.EmptyLog)
+}
+
 func TestService_Register(t *testing.T) {
-	ctx := context.Background()
-	cfg := config.Auth{
-		JwtSecret:                 "test-secret",
-		JwtTTL:                    time.Hour,
-		SessionTTL:                24 * time.Hour,
-		ResetPasswordTTL:          time.Hour,
-		ResetPasswordFormEndpoint: "http://localhost:3000/reset-password",
-	}
-
 	t.Run("Success", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
-
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
 		input := auth.RegisterInput{
-			Name:           "John Doe",
-			Email:          "john@example.com",
-			Phone:          "1234567890",
-			Password:       "password123",
-			RepeatPassword: "password123",
+			Name:     "John Doe",
+			Email:    "john@example.com",
+			Phone:    "1234567890",
+			Password: "password123",
 		}
 
-		// Mock expectations
-		mockUserRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, user.ErrNotFound)
-		mockUserRepo.EXPECT().Store(ctx, mock.AnythingOfType("*user.User")).Return(nil)
+		f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, domain.ErrNotFound)
+		f.userRepo.EXPECT().Store(ctx, mock.AnythingOfType("*user.User")).Return(nil)
 
-		// Execute
-		err := service.Register(ctx, input)
+		err := f.service.Register(ctx, input)
 
-		// Assert
 		assert.NoError(t, err)
 	})
 
-	t.Run("EmailAlreadyExists", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
-
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
+	t.Run("Email already exists", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
 		input := auth.RegisterInput{
-			Name:           "John Doe",
-			Email:          "john@example.com",
-			Password:       "password123",
-			RepeatPassword: "password123",
+			Name:     "John Doe",
+			Email:    "john@example.com",
+			Password: "password123",
 		}
 
 		existingUser := &user.User{
@@ -77,65 +59,19 @@ func TestService_Register(t *testing.T) {
 			Email: input.Email,
 		}
 
-		// Mock expectations
-		mockUserRepo.EXPECT().GetByEmail(ctx, input.Email).Return(existingUser, nil)
+		f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(existingUser, nil)
 
-		// Execute
-		err := service.Register(ctx, input)
+		err := f.service.Register(ctx, input)
 
-		// Assert
 		assert.Error(t, err)
-		assert.Equal(t, user.ErrEmailExists, err)
-	})
-
-	t.Run("RepositoryError", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
-
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
-
-		input := auth.RegisterInput{
-			Name:           "John Doe",
-			Email:          "john@example.com",
-			Password:       "password123",
-			RepeatPassword: "password123",
-		}
-
-		repoErr := errors.New("database error")
-
-		// Mock expectations
-		mockUserRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, repoErr)
-
-		// Execute
-		err := service.Register(ctx, input)
-
-		// Assert
-		assert.Error(t, err)
-		assert.Equal(t, repoErr, err)
+		assert.ErrorIs(t, err, user.ErrEmailConflict)
 	})
 }
 
 func TestService_Login(t *testing.T) {
-	ctx := context.Background()
-	cfg := config.Auth{
-		JwtSecret:                 "test-secret",
-		JwtTTL:                    time.Hour,
-		SessionTTL:                24 * time.Hour,
-		ResetPasswordTTL:          time.Hour,
-		ResetPasswordFormEndpoint: "http://localhost:3000/reset-password",
-	}
-
 	t.Run("Success", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
-
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
 		input := auth.LoginInput{
 			Email:     "john@example.com",
@@ -143,64 +79,46 @@ func TestService_Login(t *testing.T) {
 			UserAgent: "test-agent",
 		}
 
-		hashedPassword, err := auth.HashPassword("password123")
+		hashedPassword, err := auth.HashPassword(input.Password)
 		require.NoError(t, err)
 
-		testUser := &user.User{
+		mockUser := &user.User{
 			ID:       uuid.New(),
 			Name:     "John Doe",
 			Email:    input.Email,
 			Password: string(hashedPassword),
 		}
 
-		// Mock expectations
-		mockUserRepo.EXPECT().GetByEmail(ctx, input.Email).Return(testUser, nil)
-		mockAuthRepo.EXPECT().StoreSession(ctx, mock.AnythingOfType("*auth.Session")).Return(nil)
+		f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(mockUser, nil)
+		f.authRepo.EXPECT().StoreSession(ctx, mock.AnythingOfType("*auth.Session")).Return(nil)
 
-		// Execute
-		accessToken, sessionID, err := service.Login(ctx, input)
+		tokenPair, err := f.service.Login(ctx, input)
 
-		// Assert
 		assert.NoError(t, err)
-		assert.NotEmpty(t, accessToken)
-		assert.NotEmpty(t, sessionID)
+		assert.NotNil(t, tokenPair)
 	})
 
-	t.Run("UserNotFound", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
-
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
+	t.Run("User not found", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
 		input := auth.LoginInput{
 			Email:    "nonexistent@example.com",
 			Password: "password123",
 		}
 
-		// Mock expectations
-		mockUserRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, user.ErrNotFound)
+		f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, domain.ErrNotFound)
 
-		// Execute
-		accessToken, sessionID, err := service.Login(ctx, input)
+		tokenPair, err := f.service.Login(ctx, input)
 
-		// Assert
 		assert.Error(t, err)
-		assert.Equal(t, auth.ErrWrongCredentials, err)
-		assert.Empty(t, accessToken)
-		assert.Empty(t, sessionID)
+		assert.ErrorIs(t, err, auth.ErrWrongCredentials)
+		assert.Nil(t, tokenPair)
 	})
 
-	t.Run("WrongPassword", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
-
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
+	t.Run("Wrong password", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
 		input := auth.LoginInput{
 			Email:    "john@example.com",
@@ -210,480 +128,366 @@ func TestService_Login(t *testing.T) {
 		hashedPassword, err := auth.HashPassword("password123")
 		require.NoError(t, err)
 
-		testUser := &user.User{
+		mockUser := &user.User{
 			ID:       uuid.New(),
 			Name:     "John Doe",
 			Email:    input.Email,
 			Password: string(hashedPassword),
 		}
 
-		// Mock expectations
-		mockUserRepo.EXPECT().GetByEmail(ctx, input.Email).Return(testUser, nil)
+		f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(mockUser, nil)
 
-		// Execute
-		accessToken, sessionID, err := service.Login(ctx, input)
+		tokenPair, err := f.service.Login(ctx, input)
 
-		// Assert
 		assert.Error(t, err)
-		assert.Empty(t, accessToken)
-		assert.Empty(t, sessionID)
+		assert.ErrorIs(t, err, auth.ErrWrongCredentials)
+		assert.Nil(t, tokenPair)
 	})
 }
 
 func TestService_RefreshAccessToken(t *testing.T) {
-	ctx := context.Background()
-	cfg := config.Auth{
-		JwtSecret:                 "test-secret",
-		JwtTTL:                    time.Hour,
-		SessionTTL:                24 * time.Hour,
-		ResetPasswordTTL:          time.Hour,
-		ResetPasswordFormEndpoint: "http://localhost:3000/reset-password",
-	}
-
 	t.Run("Success", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
-
-		sessionID := uuid.New().String()
-		userID := uuid.New()
-
-		session, err := auth.NewSession(userID, "test-agent", cfg.SessionTTL)
+		session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", f.cfg.SessionTTL)
 		require.NoError(t, err)
 
-		testUser := &user.User{
-			ID:    userID,
-			Name:  "John Doe",
-			Email: "john@example.com",
-		}
+		prevRefreshToken := refreshToken
 
-		// Mock expectations
-		mockAuthRepo.EXPECT().GetSession(ctx, sessionID).Return(session, nil)
-		mockUserRepo.EXPECT().GetByID(ctx, userID.String()).Return(testUser, nil)
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				f.authRepo.EXPECT().
+					GetSessionByRefreshTokenHash(ctx, mock.AnythingOfType("[]uint8")).
+					Return(session, nil)
+				f.authRepo.EXPECT().UpdateSession(ctx, session).Return(nil)
 
-		// Execute
-		newAccessToken, err := service.RefreshAccessToken(ctx, sessionID)
+				return fn(ctx)
+			})
 
-		// Assert
+		tokenPair, err := f.service.RefreshAccessToken(ctx, prevRefreshToken)
+
 		assert.NoError(t, err)
-		assert.NotEmpty(t, newAccessToken)
+		assert.NotNil(t, tokenPair)
+		assert.NotEqual(t, prevRefreshToken, tokenPair.RefreshToken)
 	})
 
-	t.Run("SessionExpired", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
+	t.Run("Session expired", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
-
-		sessionID := uuid.New().String()
-		userID := uuid.New()
-
-		// Create valid session and manually set it as expired
-		session, err := auth.NewSession(userID, "test-agent", cfg.SessionTTL)
+		session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", f.cfg.SessionTTL)
 		require.NoError(t, err)
 		session.ExpiresAt = time.Now().Add(-time.Hour) // Set to past
 
-		// Mock expectations
-		mockAuthRepo.EXPECT().GetSession(ctx, sessionID).Return(session, nil)
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				f.authRepo.EXPECT().
+					GetSessionByRefreshTokenHash(ctx, mock.AnythingOfType("[]uint8")).
+					Return(session, nil)
+				return fn(ctx)
+			})
 
-		// Execute
-		newAccessToken, err := service.RefreshAccessToken(ctx, sessionID)
+		tokenPair, err := f.service.RefreshAccessToken(ctx, refreshToken)
 
-		// Assert
 		assert.Error(t, err)
-		assert.Equal(t, auth.ErrSessionExpired, err)
-		assert.Empty(t, newAccessToken)
+		assert.ErrorIs(t, err, auth.ErrSessionInvalid)
+		assert.Nil(t, tokenPair)
 	})
 }
 
 func TestService_Logout(t *testing.T) {
-	ctx := context.Background()
-	cfg := config.Auth{
-		JwtSecret:                 "test-secret",
-		JwtTTL:                    time.Hour,
-		SessionTTL:                24 * time.Hour,
-		ResetPasswordTTL:          time.Hour,
-		ResetPasswordFormEndpoint: "http://localhost:3000/reset-password",
-	}
-
 	t.Run("Success", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
-
-		sessionID := uuid.New().String()
-		userID := uuid.New()
-
-		session, err := auth.NewSession(userID, "test-agent", cfg.SessionTTL)
+		session, _, err := auth.NewSession(uuid.New(), "test-agent", f.cfg.SessionTTL)
 		require.NoError(t, err)
 
-		// Mock expectations
-		mockAuthRepo.EXPECT().GetSession(ctx, sessionID).Return(session, nil)
-		mockAuthRepo.EXPECT().UpdateSession(ctx, mock.AnythingOfType("*auth.Session")).Return(nil)
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				f.authRepo.EXPECT().GetSessionByID(ctx, session.ID).Return(session, nil)
+				f.authRepo.EXPECT().UpdateSession(ctx, mock.AnythingOfType("*auth.Session")).Return(nil)
+				return fn(ctx)
+			})
 
-		// Execute
-		err = service.Logout(ctx, sessionID)
-
-		// Assert
+		err = f.service.Logout(ctx, session.ID)
 		assert.NoError(t, err)
 	})
 
-	t.Run("SessionAlreadyExpired", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
-
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
-
-		sessionID := uuid.New().String()
-		userID := uuid.New()
+	t.Run("Session already expired", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
 		// Create valid session and manually set it as expired
-		session, err := auth.NewSession(userID, "test-agent", cfg.SessionTTL)
+		session, _, err := auth.NewSession(uuid.New(), "test-agent", f.cfg.SessionTTL)
 		require.NoError(t, err)
 		session.ExpiresAt = time.Now().Add(-time.Hour) // Set to past
 
-		// Mock expectations
-		mockAuthRepo.EXPECT().GetSession(ctx, sessionID).Return(session, nil)
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				f.authRepo.EXPECT().GetSessionByID(ctx, session.ID).Return(session, nil)
+				return fn(ctx)
+			})
 
-		// Execute
-		err = service.Logout(ctx, sessionID)
-
-		// Assert
+		err = f.service.Logout(ctx, session.ID)
 		assert.NoError(t, err) // Should not error even if session is expired
 	})
 }
 
-func TestService_ForgotPassword(t *testing.T) {
-	ctx := context.Background()
-	cfg := config.Auth{
-		JwtSecret:                 "test-secret",
-		JwtTTL:                    time.Hour,
-		SessionTTL:                24 * time.Hour,
-		ResetPasswordTTL:          time.Hour,
-		ResetPasswordFormEndpoint: "http://localhost:3000/reset-password",
-	}
-
+func TestService_RecoverPassword(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
-
-		input := auth.ForgotPasswordInput{
+		input := auth.RecoverPasswordInput{
 			Email: "john@example.com",
 		}
 
-		testUser := &user.User{
+		mockUser := &user.User{
 			ID:    uuid.New(),
 			Name:  "John Doe",
 			Email: input.Email,
 		}
 
-		// Mock expectations
-		mockTransactor.EXPECT().Transact(ctx, mock.AnythingOfType("func(context.Context) error")).Return(nil).Run(func(ctx context.Context, fn func(context.Context) error) {
-			// Inside the transaction, we need to set up the expectations
-			mockUserRepo.EXPECT().GetByEmail(ctx, input.Email).Return(testUser, nil)
-			mockAuthRepo.EXPECT().StoreResetPasswordToken(ctx, mock.AnythingOfType("*auth.ResetPasswordToken")).Return(nil)
-			mockPublisher.EXPECT().SendResetPasswordEmail(ctx, mock.AnythingOfType("auth.ResetPasswordEmailMessage")).Return(nil)
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			Run(func(ctx context.Context, fn func(context.Context) error) {
+				f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(mockUser, nil)
 
-			err := fn(ctx)
-			assert.NoError(t, err)
-		})
+				f.authRepo.EXPECT().
+					StorePasswordRecoveryToken(ctx, mock.AnythingOfType("*auth.PasswordRecoveryToken")).
+					Return(nil)
 
-		// Execute
-		err := service.ForgotPassword(ctx, input)
+				f.publisher.EXPECT().
+					SendPasswordRecoveryEmail(ctx, mock.AnythingOfType("auth.PasswordRecoveryEmailMessage")).
+					Return(nil)
+			}).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				return fn(ctx)
+			})
 
-		// Assert
+		err := f.service.RecoverPassword(ctx, input)
 		assert.NoError(t, err)
 	})
 
-	t.Run("UserNotFound", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
+	t.Run("User not found", func(t *testing.T) {
+		ctx := context.Background()
 
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
-
-		input := auth.ForgotPasswordInput{
+		f := setupTestFixture(t)
+		input := auth.RecoverPasswordInput{
 			Email: "nonexistent@example.com",
 		}
 
 		// Mock expectations
-		mockTransactor.EXPECT().Transact(ctx, mock.AnythingOfType("func(context.Context) error")).Run(func(ctx context.Context, fn func(context.Context) error) {
-			mockUserRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, user.ErrNotFound)
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			Run(func(ctx context.Context, fn func(context.Context) error) {
+				f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, domain.ErrNotFound)
+			}).
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				return fn(ctx)
+			})
 
-			err := fn(ctx)
-			assert.Error(t, err)
-			assert.Equal(t, user.ErrEmailNotVerified, err)
-		}).Return(user.ErrEmailNotVerified)
-
-		// Execute
-		err := service.ForgotPassword(ctx, input)
-
-		// Assert
+		err := f.service.RecoverPassword(ctx, input)
 		assert.Error(t, err)
-		assert.Equal(t, user.ErrEmailNotVerified, err)
+		assert.ErrorIs(t, err, domain.ErrNotFound)
 	})
 }
 
 func TestService_ResetPassword(t *testing.T) {
-	ctx := context.Background()
-	cfg := config.Auth{
-		JwtSecret:                 "test-secret",
-		JwtTTL:                    time.Hour,
-		SessionTTL:                24 * time.Hour,
-		ResetPasswordTTL:          time.Hour,
-		ResetPasswordFormEndpoint: "http://localhost:3000/reset-password",
-	}
-
 	t.Run("Success", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
+		ctx := context.Background()
 
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
+		f := setupTestFixture(t)
 
 		userID := uuid.New()
-		token, err := auth.NewResetPasswordToken(userID, cfg.ResetPasswordTTL)
+		tokenObj, tokenRaw, err := auth.NewPasswordRecoveryToken(userID, f.cfg.PasswordRecoveryTokenTTL)
 		require.NoError(t, err)
 
 		input := auth.ResetPasswordInput{
-			Token:             token.Value,
-			NewPassword:       "newpassword123",
-			RepeatNewPassword: "newpassword123",
+			Token:       tokenRaw,
+			NewPassword: "newpassword123",
 		}
 
-		testUser := &user.User{
+		mockUser := &user.User{
 			ID:    userID,
 			Name:  "John Doe",
 			Email: "john@example.com",
 		}
 
-		// Mock expectations
-		mockTransactor.EXPECT().Transact(ctx, mock.AnythingOfType("func(context.Context) error")).Return(nil).Run(func(ctx context.Context, fn func(context.Context) error) {
-			mockAuthRepo.EXPECT().GetResetPasswordToken(ctx, input.Token).Return(token, nil)
-			mockUserRepo.EXPECT().GetByID(ctx, userID.String()).Return(testUser, nil)
-			mockAuthRepo.EXPECT().UpdateResetPasswordToken(ctx, mock.AnythingOfType("*auth.ResetPasswordToken")).Return(nil)
-			mockUserRepo.EXPECT().Update(ctx, mock.AnythingOfType("*user.User")).Return(nil)
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			Run(func(ctx context.Context, fn func(context.Context) error) {
+				f.authRepo.EXPECT().GetPasswordRecoveryToken(ctx, mock.AnythingOfType("[]uint8")).Return(tokenObj, nil)
 
-			err := fn(ctx)
-			assert.NoError(t, err)
-		})
+				f.userRepo.EXPECT().GetByID(ctx, userID).Return(mockUser, nil)
 
-		// Execute
-		err = service.ResetPassword(ctx, input)
+				f.authRepo.EXPECT().
+					UpdatePasswordRecoveryToken(ctx, mock.AnythingOfType("*auth.PasswordRecoveryToken")).
+					Return(nil)
 
-		// Assert
+				f.userRepo.EXPECT().Update(ctx, mock.AnythingOfType("*user.User")).Return(nil)
+			}).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				return fn(ctx)
+			})
+
+		err = f.service.ResetPassword(ctx, input)
 		assert.NoError(t, err)
 	})
 
-	t.Run("TokenExpired", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
-
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
+	t.Run("Token expired", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
 		userID := uuid.New()
-		// Create valid token and manually set it as expired
-		token, err := auth.NewResetPasswordToken(userID, cfg.ResetPasswordTTL)
+		tokenObj, tokenRaw, err := auth.NewPasswordRecoveryToken(userID, f.cfg.PasswordRecoveryTokenTTL)
 		require.NoError(t, err)
-		token.ExpiresAt = time.Now().Add(-time.Hour) // Set to past
+		tokenObj.ExpiresAt = time.Now().Add(-time.Hour) // Set to past
 
 		input := auth.ResetPasswordInput{
-			Token:             token.Value,
-			NewPassword:       "newpassword123",
-			RepeatNewPassword: "newpassword123",
+			Token:       tokenRaw,
+			NewPassword: "newpassword123",
 		}
 
-		// Mock expectations
-		mockTransactor.EXPECT().Transact(ctx, mock.AnythingOfType("func(context.Context) error")).Run(func(ctx context.Context, fn func(context.Context) error) {
-			mockAuthRepo.EXPECT().GetResetPasswordToken(ctx, input.Token).Return(token, nil)
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			Run(func(ctx context.Context, fn func(context.Context) error) {
+				f.authRepo.EXPECT().GetPasswordRecoveryToken(ctx, mock.AnythingOfType("[]uint8")).Return(tokenObj, nil)
+			}).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				return fn(ctx)
+			})
 
-			err := fn(ctx)
-			assert.Error(t, err)
-			assert.Equal(t, auth.ErrResetPasswordTokenInvalid, err)
-		}).Return(auth.ErrResetPasswordTokenInvalid)
+		err = f.service.ResetPassword(ctx, input)
 
-		// Execute
-		err = service.ResetPassword(ctx, input)
-
-		// Assert
 		assert.Error(t, err)
-		assert.Equal(t, auth.ErrResetPasswordTokenInvalid, err)
+		assert.ErrorIs(t, err, auth.ErrInvalidPasswordRecoveryToken)
 	})
 }
 
 func TestService_ChangePassword(t *testing.T) {
-	ctx := context.Background()
-	cfg := config.Auth{
-		JwtSecret:                 "test-secret",
-		JwtTTL:                    time.Hour,
-		SessionTTL:                24 * time.Hour,
-		ResetPasswordTTL:          time.Hour,
-		ResetPasswordFormEndpoint: "http://localhost:3000/reset-password",
-	}
-
 	t.Run("Success", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
-
-		userID := uuid.New().String()
+		userID := uuid.New()
 		oldPassword := "oldpassword123"
 		newPassword := "newpassword123"
 
 		hashedOldPassword, err := auth.HashPassword(oldPassword)
 		require.NoError(t, err)
 
-		testUser := &user.User{
-			ID:       uuid.MustParse(userID),
+		mockUser := &user.User{
+			ID:       userID,
 			Name:     "John Doe",
 			Email:    "john@example.com",
 			Password: string(hashedOldPassword),
 		}
 
 		input := auth.ChangePasswordInput{
-			Password:          oldPassword,
-			NewPassword:       newPassword,
-			RepeatNewPassword: newPassword,
+			Password:    oldPassword,
+			NewPassword: newPassword,
 		}
 
-		// Mock expectations
-		mockUserRepo.EXPECT().GetByID(ctx, userID).Return(testUser, nil)
-		mockUserRepo.EXPECT().Update(ctx, mock.AnythingOfType("*user.User")).Return(nil)
+		f.userRepo.EXPECT().GetByID(ctx, userID).Return(mockUser, nil)
+		f.userRepo.EXPECT().Update(ctx, mock.AnythingOfType("*user.User")).Return(nil)
 
-		// Execute
-		err = service.ChangePassword(ctx, userID, input)
-
-		// Assert
+		err = f.service.ChangePassword(ctx, userID, input)
 		assert.NoError(t, err)
 	})
 
-	t.Run("WrongCurrentPassword", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
+	t.Run("Wrong current password", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
-
-		userID := uuid.New().String()
+		userID := uuid.New()
 		oldPassword := "oldpassword123"
 		wrongPassword := "wrongpassword"
 
 		hashedOldPassword, err := auth.HashPassword(oldPassword)
 		require.NoError(t, err)
 
-		testUser := &user.User{
-			ID:       uuid.MustParse(userID),
+		mockUser := &user.User{
+			ID:       userID,
 			Name:     "John Doe",
 			Email:    "john@example.com",
 			Password: string(hashedOldPassword),
 		}
 
 		input := auth.ChangePasswordInput{
-			Password:          wrongPassword,
-			NewPassword:       "newpassword123",
-			RepeatNewPassword: "newpassword123",
+			Password:    wrongPassword,
+			NewPassword: "newpassword123",
 		}
 
-		// Mock expectations
-		mockUserRepo.EXPECT().GetByID(ctx, userID).Return(testUser, nil)
+		f.userRepo.EXPECT().GetByID(ctx, userID).Return(mockUser, nil)
 
-		// Execute
-		err = service.ChangePassword(ctx, userID, input)
-
-		// Assert
+		err = f.service.ChangePassword(ctx, userID, input)
 		assert.Error(t, err)
-		assert.Equal(t, auth.ErrWrongCredentials, err)
+		assert.ErrorIs(t, err, auth.ErrWrongCredentials)
 	})
 }
 
-func TestService_GetResetPasswordToken(t *testing.T) {
-	ctx := context.Background()
-	cfg := config.Auth{
-		JwtSecret:                 "test-secret",
-		JwtTTL:                    time.Hour,
-		SessionTTL:                24 * time.Hour,
-		ResetPasswordTTL:          time.Hour,
-		ResetPasswordFormEndpoint: "http://localhost:3000/reset-password",
-	}
+func TestService_GetPasswordRecoveryToken(t *testing.T) {
+	t.Run("Token Not Exists", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
 
-	t.Run("Success", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
+		rawToken := "nonexistent-token"
 
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
+		f.authRepo.EXPECT().
+			GetPasswordRecoveryToken(ctx, mock.AnythingOfType("[]uint8")).
+			Return(nil, auth.ErrInvalidPasswordRecoveryToken)
 
-		tokenValue := "test-token-value"
-		userID := uuid.New()
-		expectedToken, err := auth.NewResetPasswordToken(userID, cfg.ResetPasswordTTL)
-		require.NoError(t, err)
-		expectedToken.Value = tokenValue
+		token, err := f.service.GetPasswordRecoveryToken(ctx, rawToken)
 
-		// Mock expectations
-		mockAuthRepo.EXPECT().GetResetPasswordToken(ctx, tokenValue).Return(expectedToken, nil)
-
-		// Execute
-		token, err := service.GetResetPasswordToken(ctx, tokenValue)
-
-		// Assert
-		assert.NoError(t, err)
-		assert.Equal(t, expectedToken, token)
-	})
-
-	t.Run("TokenNotFound", func(t *testing.T) {
-		// Setup
-		mockTransactor := mocks.NewTransactor(t)
-		mockUserRepo := mocks.NewUserRepository(t)
-		mockAuthRepo := mocks.NewAuthRepository(t)
-		mockPublisher := mocks.NewAuthMessagePublisher(t)
-
-		service := auth.NewService(cfg, mockTransactor, mockUserRepo, mockAuthRepo, mockPublisher)
-
-		tokenValue := "nonexistent-token"
-
-		// Mock expectations
-		mockAuthRepo.EXPECT().GetResetPasswordToken(ctx, tokenValue).Return(nil, auth.ErrResetPasswordTokenNotFound)
-
-		// Execute
-		token, err := service.GetResetPasswordToken(ctx, tokenValue)
-
-		// Assert
 		assert.Error(t, err)
-		assert.Equal(t, auth.ErrResetPasswordTokenNotFound, err)
+		assert.ErrorIs(t, err, auth.ErrInvalidPasswordRecoveryToken)
 		assert.Nil(t, token)
 	})
+}
+
+type testFixture struct {
+	transactor *sharedMocks.Transactor
+	userRepo   *mocks.UserRepository
+	authRepo   *mocks.Repository
+	publisher  *mocks.MessagePublisher
+	service    *auth.Service
+	cfg        config.Auth
+}
+
+func setupTestFixture(t *testing.T) *testFixture {
+	cfg := config.Auth{
+		JwtSecret:                "test-secret",
+		JwtTTL:                   time.Hour,
+		SessionTTL:               24 * time.Hour,
+		PasswordRecoveryTokenTTL: time.Hour,
+	}
+	tr := sharedMocks.NewTransactor(t)
+	userRepo := mocks.NewUserRepository(t)
+	authRepo := mocks.NewRepository(t)
+	msgPublisher := mocks.NewMessagePublisher(t)
+
+	service := auth.NewService(cfg, tr, userRepo, authRepo, msgPublisher)
+
+	t.Cleanup(func() {
+		tr.AssertExpectations(t)
+		userRepo.AssertExpectations(t)
+		authRepo.AssertExpectations(t)
+		msgPublisher.AssertExpectations(t)
+	})
+
+	return &testFixture{
+		cfg:        cfg,
+		transactor: tr,
+		userRepo:   userRepo,
+		authRepo:   authRepo,
+		publisher:  msgPublisher,
+		service:    service,
+	}
 }

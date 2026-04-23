@@ -17,7 +17,7 @@ packages:
     interfaces:
       Transactor:
         config:
-          filename: repository_transactor.go
+          filename: transactor.go
 
   github.com/prawirdani/golang-restapi/internal/infrastructure/storage:
     interfaces:
@@ -32,16 +32,24 @@ packages:
     interfaces:
       Repository:
         config:
-          structname: "Auth{{.InterfaceName}}"
-          filename: auth_repository.go
+          dir: "./internal/domain/auth/mocks"
+          structname: "{{.InterfaceName}}"
+          filename: repository.go
+      UserRepository:
+        config:
+          dir: "./internal/domain/auth/mocks"
+          structname: "{{.InterfaceName}}"
+          filename: user_repository.go
       MessagePublisher:
         config:
-          structname: "Auth{{.InterfaceName}}"
-          filename: auth_message_publisher.go
+          dir: "./internal/domain/auth/mocks"
+          structname: "{{.InterfaceName}}"
+          filename: message_publisher.go
 
   github.com/prawirdani/golang-restapi/internal/domain/user:
     interfaces:
       Repository:
         config:
-          structname: "User{{.InterfaceName}}"
-          filename: user_repository.go
+          dir: "./internal/domain/user/mocks"
+          structname: "{{.InterfaceName}}"
+          filename: repository.go

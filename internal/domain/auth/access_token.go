@@ -12,29 +12,43 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/internal/domain"
 )
 
 var (
-	ErrAccessTokenExpired        = domain.ErrUnauthorized("Access token expired")
+	ErrAccessTokenExpired        = domain.UnauthorizedErr("access token expired", "AUTH_EXPIRED")
 	ErrAccessTokenClaimsNotFound = errors.New("access token claims not found in context")
 )
 
+// AccessTokenClaims represents the JWT claims for an access token.
+// UserID is a convenience field populated from the standard 'sub' claim
+// as a uuid.UUID for type-safe access within the application.
+// SessionID ('sid') identifies the server-side session associated with the token,
+// enabling optional revocation or session-specific checks.
+// RegisteredClaims contains standard JWT fields like exp, iat, and iss.
 type AccessTokenClaims struct {
-	UserID string `json:"uid"`
+	UserID    uuid.UUID `json:"-"`
+	SessionID uuid.UUID `json:"sid"`
 	jwt.RegisteredClaims
 }
 
 // SignAccessToken generates a new JWT for access token
 func SignAccessToken(
 	secretKey string,
-	claims AccessTokenClaims,
+	userID uuid.UUID,
+	sessID uuid.UUID,
 	ttl time.Duration,
 ) (string, error) {
 	now := time.Now()
-	claims.RegisteredClaims = jwt.RegisteredClaims{
-		IssuedAt:  jwt.NewNumericDate(now),
-		ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+
+	claims := AccessTokenClaims{
+		SessionID: sessID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   userID.String(),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -68,6 +82,12 @@ func VerifyAccessToken(secretKey, tokenStr string) (*AccessTokenClaims, error) {
 	if !ok {
 		return nil, errors.New("invalid token claims type")
 	}
+
+	uid, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return nil, fmt.Errorf("get access token ctx: invalid type of user id: %w", err)
+	}
+	claims.UserID = uid
 
 	return claims, nil
 }

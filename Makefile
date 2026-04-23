@@ -40,6 +40,9 @@ migration\:up:
 migration\:down:
 	@goose -dir migrations postgres "host=$(DB_HOST) port=$(DB_PORT) user=$(DB_USER) password=$(DB_PASSWORD) dbname=$(DB_NAME) sslmode=disable" down
 
+migration\:clear:
+	@goose -dir migrations postgres "host=$(DB_HOST) port=$(DB_PORT) user=$(DB_USER) password=$(DB_PASSWORD) dbname=$(DB_NAME) sslmode=disable" down-to 0
+
 migration\:create:
 	@echo "Create Migration"
 	@read -p "Enter migration name: " migration_name; \

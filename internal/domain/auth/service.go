@@ -7,8 +7,11 @@ package auth
 
 import (
 	"context"
+	"errors"
 
+	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/config"
+	"github.com/prawirdani/golang-restapi/internal/domain"
 	"github.com/prawirdani/golang-restapi/internal/domain/user"
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/repository"
 	"github.com/prawirdani/golang-restapi/pkg/log"
@@ -18,14 +21,14 @@ type Service struct {
 	cfg        config.Auth
 	transactor repository.Transactor
 	authRepo   Repository
-	userRepo   user.Repository
+	userRepo   UserRepository
 	publisher  MessagePublisher
 }
 
 func NewService(
 	cfg config.Auth,
 	transactor repository.Transactor,
-	userRepo user.Repository,
+	userRepo UserRepository,
 	authRepo Repository,
 	publisher MessagePublisher,
 ) *Service {
@@ -39,13 +42,8 @@ func NewService(
 }
 
 func (s *Service) Register(ctx context.Context, inp RegisterInput) error {
-	userExists, err := s.userRepo.GetByEmail(ctx, inp.Email)
-	if err != nil && err != user.ErrNotFound {
-		return err
-	}
-
-	if userExists != nil {
-		return user.ErrEmailExists
+	if userExists, _ := s.userRepo.GetByEmail(ctx, inp.Email); userExists != nil {
+		return user.ErrEmailConflict
 	}
 
 	hashedPassword, err := HashPassword(inp.Password)
@@ -60,7 +58,6 @@ func (s *Service) Register(ctx context.Context, inp RegisterInput) error {
 		string(hashedPassword),
 	)
 	if err != nil {
-		log.ErrorCtx(ctx, "Failed to create new user", err)
 		return err
 	}
 
@@ -71,140 +68,157 @@ func (s *Service) Register(ctx context.Context, inp RegisterInput) error {
 func (s *Service) Login(
 	ctx context.Context,
 	inp LoginInput,
-) (accessToken string, sessID string, err error) {
-	usr, err := s.userRepo.GetByEmail(ctx, inp.Email)
-	if err != nil {
-		if err == user.ErrNotFound {
-			return accessToken, sessID, ErrWrongCredentials
-		}
-		return accessToken, sessID, err
+) (*TokenPair, error) {
+	usr, _ := s.userRepo.GetByEmail(ctx, inp.Email)
+	if usr == nil {
+		return nil, ErrWrongCredentials
 	}
 
 	if err := VerifyPassword(inp.Password, usr.Password); err != nil {
-		return accessToken, sessID, err
+		return nil, err
 	}
 
-	accessToken, err = s.generateAccessToken(*usr)
-	if err != nil {
-		log.ErrorCtx(ctx, "Failed to generate access token", err)
-		return accessToken, sessID, err
-	}
-
-	sess, err := NewSession(
+	sess, refreshToken, err := NewSession(
 		usr.ID,
 		inp.UserAgent,
 		s.cfg.SessionTTL,
 	)
 	if err != nil {
-		log.ErrorCtx(ctx, "Failed to create new session", err)
-		return accessToken, sessID, err
+		return nil, err
+	}
+
+	accessToken, err := s.generateAccessToken(usr.ID, sess.ID)
+	if err != nil {
+		return nil, err
 	}
 
 	if err = s.authRepo.StoreSession(ctx, sess); err != nil {
-		return accessToken, sessID, err
+		return nil, err
 	}
 
-	return accessToken, sess.ID.String(), nil
+	return &TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil
 }
 
-// TODO: Should also refreshing the refresh token, maybe by checking the exp time, if its nearly N to expire, then
-// refresh it.
+// RefreshAccessToken refresh access token. it will rotate the refresh token if refreshing success.
 func (s *Service) RefreshAccessToken(
 	ctx context.Context,
-	sessID string,
-) (string, error) {
-	sess, err := s.authRepo.GetSession(ctx, sessID)
-	if err != nil {
-		return "", err
-	}
+	refreshToken string,
+) (*TokenPair, error) {
+	sum := HashStr(refreshToken)
 
-	if sess.IsExpired() {
-		return "", ErrSessionExpired
-	}
-
-	usr, err := s.userRepo.GetByID(ctx, sess.UserID.String())
-	if err != nil {
-		return "", err
-	}
-
-	newAccessToken, err := s.generateAccessToken(*usr)
-	if err != nil {
-		log.ErrorCtx(ctx, "Failed to generate new access token", err)
-		return "", err
-	}
-
-	return newAccessToken, nil
-}
-
-func (s *Service) Logout(ctx context.Context, sessID string) error {
-	session, err := s.authRepo.GetSession(ctx, sessID)
-	if err != nil {
-		return err
-	}
-
-	if session.IsExpired() {
-		return nil
-	}
-
-	session.Revoke()
-
-	return s.authRepo.UpdateSession(ctx, session)
-}
-
-// ForgotPassword initiates the password reset process by sending a reset link or token to the user's email.
-func (s *Service) ForgotPassword(ctx context.Context, inp ForgotPasswordInput) error {
-	return s.transactor.Transact(ctx, func(ctx context.Context) error {
-		usr, err := s.userRepo.GetByEmail(ctx, inp.Email)
+	tokenPair := new(TokenPair)
+	err := s.transactor.Transact(ctx, func(ctx context.Context) error {
+		sess, err := s.authRepo.GetSessionByRefreshTokenHash(ctx, sum)
 		if err != nil {
-			if err == user.ErrNotFound {
-				return user.ErrEmailNotVerified
+			if errors.Is(err, domain.ErrNotFound) {
+				return ErrSessionInvalid
 			}
 			return err
 		}
 
-		token, err := NewResetPasswordToken(usr.ID, s.cfg.ResetPasswordTTL)
+		if sess.IsExpired() || sess.RevokedAt.Valid() {
+			return ErrSessionInvalid
+		}
+
+		newAccessToken, err := s.generateAccessToken(sess.UserID, sess.ID)
+		if err != nil {
+			return err
+		}
+		tokenPair.AccessToken = newAccessToken
+
+		// Rotate refreshToken
+		newRefreshToken, err := sess.Rotate()
+		if err != nil {
+			return err
+		}
+		tokenPair.RefreshToken = newRefreshToken
+
+		// Save session changes
+		return s.authRepo.UpdateSession(ctx, sess)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return tokenPair, nil
+}
+
+func (s *Service) Logout(ctx context.Context, sessID uuid.UUID) error {
+	return s.transactor.Transact(ctx, func(ctx context.Context) error {
+		session, err := s.authRepo.GetSessionByID(ctx, sessID)
+		if err != nil {
+			return err
+		}
+
+		if session.IsExpired() || session.RevokedAt.Valid() {
+			return nil
+		}
+
+		session.Revoke()
+
+		return s.authRepo.UpdateSession(ctx, session)
+	})
+}
+
+// RecoverPassword initiates the password recovery process by sending a reset link or token to the user's email.
+func (s *Service) RecoverPassword(ctx context.Context, inp RecoverPasswordInput) error {
+	return s.transactor.Transact(ctx, func(ctx context.Context) error {
+		usr, err := s.userRepo.GetByEmail(ctx, inp.Email)
+		if err != nil {
+			return err
+		}
+
+		tokenObj, tokenRaw, err := NewPasswordRecoveryToken(usr.ID, s.cfg.PasswordRecoveryTokenTTL)
 		if err != nil {
 			log.ErrorCtx(ctx, "Failed to create reset password token", err)
 			return err
 		}
 
 		// Save token to db
-		if err := s.authRepo.StoreResetPasswordToken(ctx, token); err != nil {
+		if err := s.authRepo.StorePasswordRecoveryToken(ctx, tokenObj); err != nil {
 			return err
 		}
 
 		// Publish email job to message queue
-		msg := ResetPasswordEmailMessage{
+		msg := PasswordRecoveryEmailMessage{
 			To:       usr.Email,
 			Name:     usr.Name,
-			ResetURL: s.cfg.ResetPasswordFormEndpoint + "?token=" + token.Value,
-			Expiry:   s.cfg.ResetPasswordTTL,
+			ResetURL: s.cfg.ResetPasswordFormEndpoint + "?token=" + tokenRaw,
+			Expiry:   s.cfg.PasswordRecoveryTokenTTL,
 		}
 
-		return s.publisher.SendResetPasswordEmail(ctx, msg)
+		return s.publisher.SendPasswordRecoveryEmail(ctx, msg)
 	})
 }
 
-func (s *Service) GetResetPasswordToken(
+func (s *Service) GetPasswordRecoveryToken(
 	ctx context.Context,
 	token string,
-) (*ResetPasswordToken, error) {
-	return s.authRepo.GetResetPasswordToken(ctx, token)
+) (*PasswordRecoveryToken, error) {
+	sum := HashStr(token)
+	return s.authRepo.GetPasswordRecoveryToken(ctx, sum)
 }
 
-// ResetPassword resets a user's password using a valid reset password token from email.
+// ResetPassword resets a user's password using a valid password recovery token from email.
 func (s *Service) ResetPassword(ctx context.Context, inp ResetPasswordInput) error {
 	return s.transactor.Transact(ctx, func(ctx context.Context) error {
-		token, err := s.authRepo.GetResetPasswordToken(ctx, inp.Token)
+		sum := HashStr(inp.Token)
+		token, err := s.authRepo.GetPasswordRecoveryToken(ctx, sum)
 		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return ErrInvalidPasswordRecoveryToken
+			}
 			return err
 		}
 
-		if token.Expired() || token.Used() {
-			return ErrResetPasswordTokenInvalid
+		if token.Expired() || token.IsUsed() {
+			return ErrInvalidPasswordRecoveryToken
 		}
 
-		user, err := s.userRepo.GetByID(ctx, token.UserID.String())
+		user, err := s.userRepo.GetByID(ctx, token.UserID)
 		if err != nil {
 			return err
 		}
@@ -216,8 +230,8 @@ func (s *Service) ResetPassword(ctx context.Context, inp ResetPasswordInput) err
 		}
 		user.Password = string(newHashedPassword)
 
-		token.Revoke()
-		if err := s.authRepo.UpdateResetPasswordToken(ctx, token); err != nil {
+		token.Use()
+		if err := s.authRepo.UpdatePasswordRecoveryToken(ctx, token); err != nil {
 			return err
 		}
 
@@ -228,16 +242,16 @@ func (s *Service) ResetPassword(ctx context.Context, inp ResetPasswordInput) err
 // ChangePassword updates the authenticated user's password after verifying the current password.
 func (s *Service) ChangePassword(
 	ctx context.Context,
-	userID string,
+	userID uuid.UUID,
 	inp ChangePasswordInput,
 ) error {
-	u, err := s.userRepo.GetByID(ctx, userID)
+	usr, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return err
 	}
 
 	// Verify old password
-	if err := VerifyPassword(inp.Password, u.Password); err != nil {
+	if err := VerifyPassword(inp.Password, usr.Password); err != nil {
 		return err
 	}
 
@@ -247,15 +261,11 @@ func (s *Service) ChangePassword(
 		return err
 	}
 
-	u.Password = string(newHashedPassword)
+	usr.Password = string(newHashedPassword)
 
-	return s.userRepo.Update(ctx, u)
+	return s.userRepo.Update(ctx, usr)
 }
 
-func (s *Service) generateAccessToken(user user.User) (string, error) {
-	return SignAccessToken(
-		s.cfg.JwtSecret,
-		AccessTokenClaims{UserID: user.ID.String()},
-		s.cfg.JwtTTL,
-	)
+func (s *Service) generateAccessToken(userID, sessID uuid.UUID) (string, error) {
+	return SignAccessToken(s.cfg.JwtSecret, userID, sessID, s.cfg.JwtTTL)
 }

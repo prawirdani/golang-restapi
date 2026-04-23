@@ -1,15 +1,25 @@
-package handler
+// Package http provides HTTP transport utilities for the application.
+//
+// It includes:
+//   - Domain-specific HTTP handlers that delegate business logic to services (handler/*)
+//   - Middleware for request processing, authentication, logging, etc. (middleware/*)
+//   - Helpers for request context, JSON responses, error handling, and request body parsing
+//
+// Handlers should focus only on HTTP concerns and formatting responses.
+// Business logic belongs in the domain/service layers. This package is internal
+// and not intended for use outside the application.
+package http
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"mime/multipart"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
-	httperr "github.com/prawirdani/golang-restapi/internal/transport/http/error"
 	"github.com/prawirdani/golang-restapi/pkg/validator"
 )
 
@@ -66,8 +76,8 @@ func (c *Context) Param(key string) string {
 }
 
 // Query gets a URL query parameter
-func (c *Context) Query(key string) string {
-	return c.r.URL.Query().Get(key)
+func (c *Context) Query() url.Values {
+	return c.r.URL.Query()
 }
 
 // Bind unmarshals JSON request body into provided struct
@@ -121,29 +131,29 @@ func (c *Context) FormValue(key string) string {
 func (c *Context) FormFile(key string) (*multipart.FileHeader, error) {
 	_, header, err := c.r.FormFile(key)
 	if err != nil {
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
-			return nil, httperr.New(
-				http.StatusRequestEntityTooLarge,
-				"request body too large",
-				map[string]int{
-					"max_bytes": int(maxBytesErr.Limit),
-				},
-			)
-		}
-
 		return nil, err
-
 	}
 
 	return header, nil
 }
 
+func (c *Context) EnsureMultipartForm() error {
+	if !strings.HasPrefix(c.Get("Content-Type"), "multipart/form-data") {
+		return ErrMultipartForm.SetMessage("request 'Content-Type' header must be multipart/form-data")
+	}
+	return nil
+}
+
+func (c *Context) CleanupMultipart() {
+	if c.r.MultipartForm != nil {
+		_ = c.r.MultipartForm.RemoveAll()
+	}
+}
+
 // FormFiles gets multiple uploaded files
 func (c *Context) FormFiles(key string) ([]*multipart.FileHeader, error) {
 	if c.r.MultipartForm == nil {
-		// TODO: Dynamic? does MaxBytesReader has impact on this?
-		if err := c.r.ParseMultipartForm(32 << 20); err != nil { // 32 MB default
+		if err := c.r.ParseMultipartForm(2 << 20); err != nil {
 			return nil, err
 		}
 	}
@@ -157,40 +167,43 @@ func (c *Context) FormFiles(key string) ([]*multipart.FileHeader, error) {
 	return nil, http.ErrMissingFile
 }
 
-// BindValidate is a helper function to bind and validate json request body
+// BindValidate binds a JSON request body into dst, then validates and/or sanitizes it.
+// dst may implement [validator.Validator], [validator.Sanitizer], or both.
+// If neither is implemented, [validator.Struct] is used as a fallback.
 func (c *Context) BindValidate(dst any) error {
 	if c.Get("Content-Type") != "application/json" {
-		return &httperr.JSONBindError{Message: "Content-Type must be application/json"}
+		return &JSONBindError{Message: "Content-Type must be application/json"}
 	}
 
 	dec := json.NewDecoder(c.r.Body)
 	if err := dec.Decode(dst); err != nil {
-		return httperr.ParseJSONBindErr(err)
+		return ParseJSONBindErr(err)
 	}
 
-	// If Implement JSONRequestBody interfaces
-	if b, ok := dst.(JSONRequestBody); ok {
-		if err := b.Sanitize(); err != nil {
-			return err
-		}
+	return validator.Validate(dst)
+}
 
-		return b.Validate()
-	}
+func (c *Context) Request() *http.Request {
+	return c.r
+}
 
-	// Do Manual validation
-	return validator.Struct(dst)
+func (c *Context) Writer() http.ResponseWriter {
+	return c.w
+}
+
+type ErrorBody struct {
+	Error *Error `json:"error"`
 }
 
 // Handler converts custom HandlerFunc to standard http.HandlerFunc with structured error response handling capability
 func Handler(h Func) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		c := &Context{
-			w: w,
-			r: r,
-		}
+		c := &Context{w: w, r: r}
 		if err := h(c); err != nil {
-			e := httperr.FromError(err)
-			c.JSON(e.Status(), e)
+			e := NormalizeError(err)
+			if err := c.JSON(e.Status(), &ErrorBody{Error: e}); err != nil {
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+			}
 		}
 	}
 }

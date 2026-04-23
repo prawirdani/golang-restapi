@@ -12,17 +12,17 @@ import (
 )
 
 const (
-	AuthDirectExchange           = "auth.direct"
-	ResetPasswordEmailRoutingKey = "email.reset-password"
-	ResetPasswordEmailQueue      = "auth.email.reset-password"
+	AuthDirectExchange              = "auth.direct"
+	PasswordRecoveryEmailRoutingKey = "email.password-recovery"
+	PasswordRecoveryEmailQueue      = "auth.email.password-recovery"
 )
 
-var ResetPasswordEmailTopology = &Topology{
-	Name:         "Reset Password Email Topology",
+var PasswordRecoveryEmailTopology = &Topology{
+	Name:         "Password Recovery Email Topology",
 	Exchange:     AuthDirectExchange,
 	ExchangeType: "direct",
-	Queue:        ResetPasswordEmailQueue,
-	RoutingKey:   ResetPasswordEmailRoutingKey,
+	Queue:        PasswordRecoveryEmailQueue,
+	RoutingKey:   PasswordRecoveryEmailRoutingKey,
 	Durable:      true,
 	RetryTTL:     5000, // 5 Seconds
 	MaxRetry:     3,
@@ -39,10 +39,10 @@ func NewAuthMessagePublisher(conn *amqp.Connection) *AuthMessagePublisher {
 	return &AuthMessagePublisher{conn: conn}
 }
 
-// Implements auth.MessagePublisher
-func (mp *AuthMessagePublisher) SendResetPasswordEmail(
+// SendPasswordRecoveryEmail Implements [auth.MessagePublisher]
+func (mp *AuthMessagePublisher) SendPasswordRecoveryEmail(
 	ctx context.Context,
-	msg auth.ResetPasswordEmailMessage,
+	msg auth.PasswordRecoveryEmailMessage,
 ) error {
 	// NOTE: For low to moderate traffic is okay to open channel per function call, but when the traffic goes up it
 	// slightly more overhead per publish (channel open/close is a network round-trip)
@@ -61,7 +61,7 @@ func (mp *AuthMessagePublisher) SendResetPasswordEmail(
 	err = ch.PublishWithContext(
 		ctx,
 		AuthDirectExchange,
-		ResetPasswordEmailRoutingKey,
+		PasswordRecoveryEmailRoutingKey,
 		false,
 		false,
 		amqp.Publishing{
@@ -72,7 +72,7 @@ func (mp *AuthMessagePublisher) SendResetPasswordEmail(
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to publish reset password email message: %w", err)
+		return fmt.Errorf("failed to publish password recovery email message: %w", err)
 	}
 
 	return nil

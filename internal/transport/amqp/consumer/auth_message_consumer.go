@@ -21,11 +21,11 @@ func NewAuthMessageConsumer(mailer *mailer.Mailer) *AuthMessageConsumer {
 	}
 }
 
-func (mc *AuthMessageConsumer) EmailResetPasswordHandler(
+func (mc *AuthMessageConsumer) EmailPasswordRecoveryHandler(
 	ctx context.Context,
 	d amqp.Delivery,
 ) error {
-	msg, err := decodeJsonBody[auth.ResetPasswordEmailMessage](d.Body)
+	msg, err := decodeJsonBody[auth.PasswordRecoveryEmailMessage](d.Body)
 	if err != nil {
 		return fmt.Errorf("failed to decode body: %w", err)
 	}
@@ -41,7 +41,7 @@ func (mc *AuthMessageConsumer) EmailResetPasswordHandler(
 	}
 
 	if err := mc.mailer.Send(
-		mailer.HeaderParams{To: []string{msg.To}, Subject: "Password Reset"},
+		mailer.HeaderParams{To: []string{msg.To}, Subject: "Password Recovery"},
 		buf,
 	); err != nil {
 		return fmt.Errorf("failed to send email: %w", err)

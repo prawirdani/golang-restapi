@@ -2,20 +2,18 @@
 package user
 
 import (
+	"net/mail"
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/prawirdani/golang-restapi/internal/domain"
 	"github.com/prawirdani/golang-restapi/pkg/nullable"
 )
 
 var (
-	ErrRequiredName     = domain.ErrValidation("Name is required")
-	ErrRequiredEmail    = domain.ErrValidation("Email is required")
-	ErrRequiredPassword = domain.ErrValidation("Password is required")
-	ErrEmailExists      = domain.ErrDuplicate("Email already exists")
-	ErrNotFound         = domain.ErrNotFound("User not found")
-	ErrEmailNotVerified = domain.ErrForbidden("Email is not registered or not verified")
+	ErrEmailConflict = domain.ConflictErr("email already exists", "USER_EMAIL_CONFLICT")
+	ErrValidation    = domain.ValidationErr("invalid user data", "USER_VALIDATION")
 )
 
 type User struct {
@@ -31,13 +29,16 @@ type User struct {
 
 func (u *User) Validate() error {
 	if u.Name == "" {
-		return ErrRequiredName
+		return ErrValidation.WithDetails("name is required")
 	}
 	if u.Email == "" {
-		return ErrRequiredEmail
+		return ErrValidation.WithDetails("email is required")
+	}
+	if _, err := mail.ParseAddress(u.Email); err != nil {
+		return ErrValidation.WithDetails("email must be a valid email address")
 	}
 	if u.Password == "" {
-		return ErrRequiredPassword
+		return ErrValidation.WithDetails("password is required")
 	}
 
 	return nil
@@ -50,15 +51,12 @@ func New(name, email, phone, hashedPassword string) (*User, error) {
 		return nil, err
 	}
 
-	now := time.Now()
 	u := User{
-		ID:        id,
-		Name:      name,
-		Email:     email,
-		Phone:     nullable.New(phone, false),
-		Password:  hashedPassword,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:       id,
+		Name:     name,
+		Email:    email,
+		Phone:    nullable.New(phone, false),
+		Password: hashedPassword,
 	}
 
 	if err := u.Validate(); err != nil {

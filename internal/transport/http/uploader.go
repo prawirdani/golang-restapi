@@ -1,16 +1,153 @@
-package uploader
+package http
 
 import (
 	"context"
 	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
+	"path"
 	"strings"
 
-	httperr "github.com/prawirdani/golang-restapi/internal/transport/http/error"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
+
+var (
+	ImageMIMEs = []string{"image/jpeg", "image/png", "image/gif", "image/webp"}
+	ImageExts  = []string{".jpg", ".jpeg", ".png", ".gif", ".webp"}
+)
+
+var ErrUploader = &Error{
+	Message: "invalid file uploaded",
+	Code:    "FILE_UPLOAD",
+	Details: nil,
+	status:  http.StatusBadRequest,
+}
+
+type ParsedFile struct {
+	header      *multipart.FileHeader
+	filename    string
+	size        int64
+	contentType string
+	file        multipart.File // opened lazily
+}
+
+// NewParsedFile constructs ParsedFile metadata (does not open file yet).
+func NewParsedFile(fh *multipart.FileHeader) *ParsedFile {
+	if fh == nil {
+		return emptyFile()
+	}
+
+	return &ParsedFile{
+		header:      fh,
+		filename:    fh.Filename,
+		size:        fh.Size,
+		contentType: fh.Header.Get("Content-Type"),
+	}
+}
+
+// Open lazily opens the underlying multipart file.
+// Safe to call multiple times; closes any previously opened handle.
+func (pf *ParsedFile) Open() error {
+	if pf.header == nil {
+		return fmt.Errorf("no file available")
+	}
+
+	// Close existing file if open
+	if pf.file != nil {
+		if err := pf.file.Close(); err != nil {
+			return fmt.Errorf("failed to close previous file: %w", err)
+		}
+	}
+
+	f, err := pf.header.Open()
+	if err != nil {
+		pf.file = nil // Ensure consistent state
+		return err
+	}
+	pf.file = f
+	return nil
+}
+
+// Close closes the underlying file if opened.
+func (pf *ParsedFile) Close() error {
+	if pf.file != nil {
+		err := pf.file.Close()
+		pf.file = nil
+		return err
+	}
+	return nil
+}
+
+// Read implements io.Reader.
+func (pf *ParsedFile) Read(p []byte) (int, error) {
+	if pf.file == nil {
+		if err := pf.Open(); err != nil {
+			return 0, err
+		}
+	}
+	return pf.file.Read(p)
+}
+
+// Seek implements io.Seeker, if supported.
+func (pf *ParsedFile) Seek(offset int64, whence int) (int64, error) {
+	if pf.file == nil {
+		if err := pf.Open(); err != nil {
+			return 0, err
+		}
+	}
+	return pf.file.Seek(offset, whence)
+}
+
+// Name implements storage.File.
+func (pf *ParsedFile) Name() string {
+	return pf.filename
+}
+
+// SetName implements storage.File.
+func (pf *ParsedFile) SetName(name string) error {
+	if name == "" {
+		return fmt.Errorf("filename cannot be empty")
+	}
+	// Strip any existing extension and add the current one
+	base := strings.TrimSuffix(name, path.Ext(name))
+	pf.filename = base + pf.Ext()
+	return nil
+}
+
+// Ext implements storage.File.
+func (pf *ParsedFile) Ext() string {
+	return path.Ext(pf.filename)
+}
+
+// Size implements storage.File.
+func (pf *ParsedFile) Size() int64 {
+	return pf.size
+}
+
+// ContentType implements storage.File.
+func (pf *ParsedFile) ContentType() string {
+	return pf.contentType
+}
+
+// NoFile implements storage.File.
+func (pf *ParsedFile) NoFile() bool {
+	return pf.header == nil
+}
+
+// Header exposes the raw multipart header (optional).
+func (pf *ParsedFile) Header() *multipart.FileHeader {
+	return pf.header
+}
+
+// emptyFile produced no file for ParsedFile
+func emptyFile() *ParsedFile {
+	return &ParsedFile{
+		filename: "",
+		size:     0,
+	}
+}
 
 type ValidationRules struct {
 	MaxSize      int64
@@ -38,9 +175,7 @@ func ValidateFile(ctx context.Context, f *ParsedFile, rules ValidationRules) err
 
 	// Size check (cheap)
 	if rules.MaxSize > 0 && f.Size() > rules.MaxSize {
-		return httperr.New(
-			http.StatusBadRequest,
-			"file size exceeds maximum allowed",
+		return ErrUploader.SetMessage("file size exceeds maximum allowed").SetDetails(
 			map[string]any{
 				"max_bytes": rules.MaxSize,
 				"received":  f.size,
@@ -58,13 +193,11 @@ func ValidateFile(ctx context.Context, f *ParsedFile, rules ValidationRules) err
 
 		// SPECIAL CASE: Skip MIME mismatch check for Office documents
 		// since they are ZIP containers and often detected as application/zip
-		if isOfficeDocument(f.Ext(), actualType, claimedType) {
+		if isOfficeDocument(f.Ext(), actualType) {
 			// For Office documents, we trust the extension and claimed type
 			// but still validate that the actual type is either ZIP or the expected Office MIME
 			if !rules.isMIMEAllowed(claimedType) && !rules.isMIMEAllowed(actualType) {
-				return httperr.New(
-					http.StatusBadRequest,
-					"file type is not allowed",
+				return ErrUploader.SetMessage("file type is not allowed").SetDetails(
 					map[string]any{"allowed_mimes": rules.AllowedMIMEs},
 				)
 			}
@@ -82,18 +215,12 @@ func ValidateFile(ctx context.Context, f *ParsedFile, rules ValidationRules) err
 				"actual",
 				actualType,
 			)
-			return httperr.New(
-				http.StatusBadRequest,
-				"invalid file",
-				nil,
-			) // Return generic response
+			return ErrUploader.SetMessage("invalid file").SetDetails("what a sus file")
 		}
 
 		// Check if actual type is allowed
 		if !rules.isMIMEAllowed(actualType) {
-			return httperr.New(
-				http.StatusBadRequest,
-				"file type is not allowed",
+			return ErrUploader.SetMessage("file type is not allowed").SetDetails(
 				map[string]any{"actual": actualType, "allowed_mimes": rules.AllowedMIMEs},
 			)
 		}
@@ -193,7 +320,7 @@ func mimeTypesMatch(claimed, actual string) bool {
 
 // isOfficeDocument checks if the file is a modern Office document
 // that might be detected as application/zip due to its container format
-func isOfficeDocument(ext, actualType, claimedType string) bool {
+func isOfficeDocument(ext, actualType string) bool {
 	officeExtensions := map[string][]string{
 		".xlsx": {
 			"application/zip",
