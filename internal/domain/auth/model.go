@@ -51,7 +51,8 @@ type TokenPair struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-type PasswordRecoveryEmailMessage struct {
+// Messaging/queue payload shape for PasswordRecovery job
+type PasswordRecoveryMessage struct {
 	To       string        `json:"to"`         // Recipient's email address
 	Name     string        `json:"name"`       // Recipient's name
 	ResetURL string        `json:"reset_url"`  // Link for resetting the password

@@ -4,10 +4,10 @@ import (
 	"github.com/prawirdani/golang-restapi/config"
 	"github.com/prawirdani/golang-restapi/internal/domain/auth"
 	"github.com/prawirdani/golang-restapi/internal/domain/user"
-	"github.com/prawirdani/golang-restapi/internal/infrastructure/messaging/rabbitmq"
+	redisstream "github.com/prawirdani/golang-restapi/internal/infrastructure/messaging/redis"
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/repository/postgres"
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/storage/r2"
-	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/redis/go-redis/v9"
 )
 
 type Services struct {
@@ -25,7 +25,7 @@ type Container struct {
 func NewContainer(
 	cfg *config.Config,
 	pg *postgres.DB,
-	rmqconn *amqp.Connection,
+	rdb *redis.Client,
 ) (*Container, error) {
 	r2Storage, err := r2.New(r2.Config{
 		BucketURL:       cfg.R2.BucketURL,
@@ -45,13 +45,13 @@ func NewContainer(
 	// Setup Services
 	userService := user.NewService(pg, userRepo, r2Storage)
 
-	authMessagePublisher := rabbitmq.NewAuthMessagePublisher(rmqconn)
+	emailProducer := redisstream.NewEmailProducer(rdb)
 	authSvc := auth.NewService(
 		cfg.Auth,
 		pg,
 		userRepo,
 		authRepo,
-		authMessagePublisher,
+		emailProducer,
 	)
 
 	c := &Container{

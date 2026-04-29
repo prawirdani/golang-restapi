@@ -22,7 +22,7 @@ type Service struct {
 	transactor repository.Transactor
 	authRepo   Repository
 	userRepo   UserRepository
-	publisher  MessagePublisher
+	mailer     Mailer
 }
 
 func NewService(
@@ -30,14 +30,14 @@ func NewService(
 	transactor repository.Transactor,
 	userRepo UserRepository,
 	authRepo Repository,
-	publisher MessagePublisher,
+	emailProducer Mailer,
 ) *Service {
 	return &Service{
 		cfg:        cfg,
 		transactor: transactor,
 		userRepo:   userRepo,
 		authRepo:   authRepo,
-		publisher:  publisher,
+		mailer:     emailProducer,
 	}
 }
 
@@ -182,15 +182,14 @@ func (s *Service) RecoverPassword(ctx context.Context, inp RecoverPasswordInput)
 			return err
 		}
 
-		// Publish email job to message queue
-		msg := PasswordRecoveryEmailMessage{
+		msg := PasswordRecoveryMessage{
 			To:       usr.Email,
 			Name:     usr.Name,
 			ResetURL: s.cfg.ResetPasswordFormEndpoint + "?token=" + tokenRaw,
 			Expiry:   s.cfg.PasswordRecoveryTokenTTL,
 		}
 
-		return s.publisher.SendPasswordRecoveryEmail(ctx, msg)
+		return s.mailer.PasswordRecovery(ctx, msg)
 	})
 }
 

@@ -263,8 +263,8 @@ func TestService_RecoverPassword(t *testing.T) {
 					StorePasswordRecoveryToken(ctx, mock.AnythingOfType("*auth.PasswordRecoveryToken")).
 					Return(nil)
 
-				f.publisher.EXPECT().
-					SendPasswordRecoveryEmail(ctx, mock.AnythingOfType("auth.PasswordRecoveryEmailMessage")).
+				f.mailer.EXPECT().
+					PasswordRecovery(ctx, mock.AnythingOfType("auth.PasswordRecoveryMessage")).
 					Return(nil)
 			}).
 			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
@@ -456,7 +456,7 @@ type testFixture struct {
 	transactor *sharedMocks.Transactor
 	userRepo   *mocks.UserRepository
 	authRepo   *mocks.Repository
-	publisher  *mocks.MessagePublisher
+	mailer     *mocks.Mailer
 	service    *auth.Service
 	cfg        config.Auth
 }
@@ -471,15 +471,15 @@ func setupTestFixture(t *testing.T) *testFixture {
 	tr := sharedMocks.NewTransactor(t)
 	userRepo := mocks.NewUserRepository(t)
 	authRepo := mocks.NewRepository(t)
-	msgPublisher := mocks.NewMessagePublisher(t)
+	mailer := mocks.NewMailer(t)
 
-	service := auth.NewService(cfg, tr, userRepo, authRepo, msgPublisher)
+	service := auth.NewService(cfg, tr, userRepo, authRepo, mailer)
 
 	t.Cleanup(func() {
 		tr.AssertExpectations(t)
 		userRepo.AssertExpectations(t)
 		authRepo.AssertExpectations(t)
-		msgPublisher.AssertExpectations(t)
+		mailer.AssertExpectations(t)
 	})
 
 	return &testFixture{
@@ -487,7 +487,7 @@ func setupTestFixture(t *testing.T) *testFixture {
 		transactor: tr,
 		userRepo:   userRepo,
 		authRepo:   authRepo,
-		publisher:  msgPublisher,
+		mailer:     mailer,
 		service:    service,
 	}
 }

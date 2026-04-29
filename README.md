@@ -11,7 +11,7 @@ Personal Go RESTful API template with common 3 Layered architecture with followi
 ```
 cmd/
   api/                - HTTP server entrypoint
-  worker/             - AMQP consumer entrypoint
+  worker/             - Message consumer/worker entrypoint
 
 internal/
   domain/             - business models, services, interfaces
@@ -19,11 +19,11 @@ internal/
     user/             - user service and repository interfaces
   infrastructure/
     repository/       - postgres implementations
-    messaging/        - rabbitmq publisher & consumer
+    messaging/        - redis stream producer & consumer implementations
     storage/          - r2 implementation
   transport/
     http/             - chi handlers, middleware
-    amqp/             - consumer implementations
+  worker/             - Message consumer handler/worker
 
 config/               - configuration structs
 pkg/                  - shared utilities (log, validator, mailer, metrics)
@@ -47,23 +47,23 @@ The auth system uses a split-token design with JWT access tokens and opaque refr
 
 #### Password Recovery
 
-Flow: `/auth/recover` (submit email) → generates opaque token → stores hash in `password_recovery_tokens` → publishes msg to RabbitMQ → worker sends HTML email with reset link. Token valid for configured TTL (configurable via .env), single-use (marked as used after reset).
+Flow: `/auth/recover` (submit email) → generates opaque token → stores hash in `password_recovery_tokens` → publishes msg to Redis Stream → worker sends HTML email with reset link. Token valid for configured TTL (configurable via .env), single-use (marked as used after reset).
 
 **Message Queue**
 
-RabbitMQ with direct exchange topology per message type. Each queue has built-in retry (dlx) and dead-letter (dlq) handling:
+Redis Stream with consumer groups. Each stream uses a consumer group with pending entries list (PEL) for reliable delivery and dead-letter handling:
 
 ```
-main queue → retry queue (TTL) → back to main → DLQ after MaxRetry
+stream → consumer group → pending entries (PEL) → ack → DLQ stream after MaxRetry
 ```
 
-The worker consumes messages via `amqp091-go`. Auth domain publishes password recovery emails asynchronously to decouple SMTP from HTTP response time.
+The worker consumes messages via `go-redis`. Auth domain publishes password recovery emails asynchronously to decouple SMTP from HTTP response time.
 
 --- 
 
 ### Technologies
 - [PostgreSQL](https://www.postgresql.org)
-- [RabbitMQ](https://www.rabbitmq.com)
+- [Redis](https://redis.io) using stream as message queue
 - [Cloudflare R2](https://www.cloudflare.com/developer-platform/products/r2)
 - Metrics & Instrumentation:
   - [Prometheus](https://prometheus.io)
@@ -80,7 +80,7 @@ The worker consumes messages via `amqp091-go`. Auth domain publishes password re
 - SMTP Mailing: [gomail.v2](https://pkg.go.dev/gopkg.in/gomail.v2)
 - Auth: [jwt](https://github.com/golang-jwt/jwt)
 - Cloudflare R2 Client: [aws-sdk-v2](https://github.com/aws/aws-sdk-go-v2)
-- RabbitMQ Client: [amqp091-go](https://github.com/rabbitmq/amqp091-go)
+- Redis Client: [go-redis](https://github.com/redis/go-redis)
 - Prometheus Client: [prometheus](https://github.com/prometheus/client_golang)
 - Testing: [testify](https://github.com/stretchr/testify) & [mockery](https://github.com/vektra/mockery)
 

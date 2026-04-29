@@ -11,10 +11,9 @@ import (
 	stdlog "log"
 
 	"github.com/prawirdani/golang-restapi/config"
-	"github.com/prawirdani/golang-restapi/internal/infrastructure/messaging/rabbitmq"
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/repository/postgres"
 	"github.com/prawirdani/golang-restapi/pkg/log"
-	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/redis/go-redis/v9"
 )
 
 func init() {
@@ -35,14 +34,14 @@ func main() {
 	}
 	defer pgpool.Close()
 
-	rmqconn, err := initRabbitMQ(cfg.RabbitMQURL)
-	if err != nil {
-		log.Error("Failed to init rabbit mq", err)
-		os.Exit(1)
-	}
-	defer rmqconn.Close()
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%v", cfg.Redis.Host, cfg.Redis.Port),
+		Password: cfg.Redis.Password,
+		DB:       0, // use default DB
+	})
+	defer rdb.Close()
 
-	container, err := NewContainer(cfg, pgpool, rmqconn)
+	container, err := NewContainer(cfg, pgpool, rdb)
 	if err != nil {
 		log.Error("Failed to create container", err)
 		os.Exit(1)
@@ -72,20 +71,4 @@ func main() {
 	}
 
 	log.Info("Application exited gracefully")
-}
-
-func initRabbitMQ(url string) (*amqp.Connection, error) {
-	conn, err := rabbitmq.Dial(url)
-	if err != nil {
-		return nil, fmt.Errorf("dial: %w", err)
-	}
-
-	if err := rabbitmq.SetupTopologies(
-		conn,
-		rabbitmq.PasswordRecoveryEmailTopology,
-	); err != nil {
-		return nil, fmt.Errorf("setup topologies: %w", err)
-	}
-
-	return conn, nil
 }

@@ -2,9 +2,9 @@ package mailer
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/prawirdani/golang-restapi/config"
-	"github.com/prawirdani/golang-restapi/pkg/log"
 	"gopkg.in/gomail.v2"
 )
 
@@ -42,8 +42,7 @@ func (m *Mailer) Send(headerParams HeaderParams, body bytes.Buffer) error {
 	mail.SetBody("text/html", body.String())
 
 	if err := m.dialer.DialAndSend(mail); err != nil {
-		log.Error("Failed to send mail", err)
-		return err
+		return fmt.Errorf("failed to send mail: %w", err)
 	}
 
 	return nil

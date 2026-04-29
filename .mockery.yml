@@ -40,11 +40,11 @@ packages:
           dir: "./internal/domain/auth/mocks"
           structname: "{{.InterfaceName}}"
           filename: user_repository.go
-      MessagePublisher:
+      Mailer:
         config:
           dir: "./internal/domain/auth/mocks"
           structname: "{{.InterfaceName}}"
-          filename: message_publisher.go
+          filename: mailer.go
 
   github.com/prawirdani/golang-restapi/internal/domain/user:
     interfaces:

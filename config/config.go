@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/url"
-	"os"
 
 	"github.com/joho/godotenv"
 )
@@ -17,13 +16,13 @@ const (
 )
 
 type Config struct {
-	App         App
-	Postgres    Postgres
-	Cors        Cors
-	Auth        Auth
-	SMTP        SMTP
-	R2          R2
-	RabbitMQURL string
+	App      App
+	Postgres Postgres
+	Redis    Redis
+	Cors     Cors
+	Auth     Auth
+	SMTP     SMTP
+	R2       R2
 }
 
 func (c Config) IsProduction() bool {
@@ -42,6 +41,9 @@ func LoadConfig() (*Config, error) {
 	if err := cfg.Postgres.Parse(); err != nil {
 		return nil, err
 	}
+	if err := cfg.Redis.Parse(); err != nil {
+		return nil, err
+	}
 	if err := cfg.Cors.Parse(); err != nil {
 		return nil, err
 	}
@@ -54,8 +56,6 @@ func LoadConfig() (*Config, error) {
 	if err := cfg.R2.Parse(); err != nil {
 		return nil, err
 	}
-
-	cfg.RabbitMQURL = os.Getenv("RABBITMQ_URL")
 
 	// Validate
 	if err := cfg.Validate(); err != nil {

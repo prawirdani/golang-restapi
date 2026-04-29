@@ -47,13 +47,14 @@ type Repository interface {
 
 type UserRepository user.Repository
 
-// MessagePublisher defines the contract for publishing authentication-related
-// messages to external systems (e.g., message queues, event buses).
-// This enables asynchronous processing of notifications and events.
-type MessagePublisher interface {
-	// SendPasswordRecoveryEmail publishes a message to trigger a password recovery email.
-	// The message contains the user's information and raw password recovery token that will be
-	// consumed by an email service worker.
-	// Returns an error if the message cannot be published to the queue.
-	SendPasswordRecoveryEmail(ctx context.Context, msg PasswordRecoveryEmailMessage) error
+// Mailer defines the contract for sending email notifications.
+//
+// Implementations can either send emails directly (e.g. SMTP, SendGrid)
+// or publish to a message queue for async processing (e.g. Redis Streams, Kafka).
+//
+// Prefer the event-based approach — it decouples the caller from email
+// delivery, improves resilience with built-in retry/DLQ, and keeps
+// request latency unaffected by slow or failing mail servers.
+type Mailer interface {
+	PasswordRecovery(ctx context.Context, msg PasswordRecoveryMessage) error
 }
