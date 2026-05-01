@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	stdlog "log"
-	"time"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/prawirdani/golang-restapi/config"
-	redisstream "github.com/prawirdani/golang-restapi/internal/infrastructure/messaging/redis"
 	"github.com/prawirdani/golang-restapi/internal/worker"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 	"github.com/prawirdani/golang-restapi/pkg/mailer"
@@ -28,23 +29,25 @@ func main() {
 	})
 	defer rdb.Close()
 
-	mail := mailer.New(cfg.SMTP)
+	mailer := mailer.New(cfg.SMTP)
+	emailEventConsumer := worker.NewEmailEventConsumer(mailer).Handler(rdb)
 
-	emailHandler := worker.NewEmailHandler(mail)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	emailEventConsumer := redisstream.NewStreamConsumer(rdb, redisstream.ConsumerConfig{
-		Group:       "mailing",
-		Stream:      "email.password_recovery",
-		Consumer:    "c1",
-		Concurrency: 5,
-		BatchSize:   5,
-		MaxRetries:  3,
-		DLQStream:   "email.password_recovery.dlq",
-		MinIdle:     time.Second * 15,
-		Block:       time.Second * 5,
-	}, emailHandler.HandlePasswordRecovery)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-quit
+		cancel()
+	}()
 
-	if err := emailEventConsumer.Start(context.Background()); err != nil {
-		stdlog.Fatal("Failed start consumer", err)
-	}
+	go func() {
+		if err := emailEventConsumer.Start(ctx); err != nil {
+			stdlog.Fatal(err)
+		}
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
 }

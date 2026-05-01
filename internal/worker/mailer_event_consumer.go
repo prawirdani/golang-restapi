@@ -3,24 +3,27 @@ package worker
 import (
 	"bytes"
 	"context"
+	"time"
 
 	"github.com/prawirdani/golang-restapi/internal/domain/auth"
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/messaging"
+	redisstream "github.com/prawirdani/golang-restapi/internal/infrastructure/messaging/redis"
 	"github.com/prawirdani/golang-restapi/pkg/mailer"
+	"github.com/redis/go-redis/v9"
 )
 
-type EmailHandler struct {
+type EmailEventConsumer struct {
 	mailer *mailer.Mailer
 }
 
-func NewEmailHandler(mailer *mailer.Mailer) *EmailHandler {
-	return &EmailHandler{
+func NewEmailEventConsumer(mailer *mailer.Mailer) *EmailEventConsumer {
+	return &EmailEventConsumer{
 		mailer: mailer,
 	}
 }
 
 // HandlePasswordRecovery match [messaging.Handler] signature
-func (w *EmailHandler) HandlePasswordRecovery(
+func (w *EmailEventConsumer) HandlePasswordRecovery(
 	ctx context.Context,
 	envelope messaging.Envelope[auth.PasswordRecoveryMessage],
 ) error {
@@ -39,5 +42,23 @@ func (w *EmailHandler) HandlePasswordRecovery(
 			Subject: "Password Recovery",
 		},
 		buf,
+	)
+}
+
+func (h *EmailEventConsumer) Handler(rdb *redis.Client) redisstream.Consumer {
+	return redisstream.NewStreamConsumer(
+		rdb,
+		redisstream.ConsumerConfig{
+			Group:       "mailing",
+			Stream:      redisstream.EmailPasswordRecoveryStream,
+			Consumer:    "c1m",
+			Concurrency: 5,
+			BatchSize:   5,
+			MaxRetries:  3,
+			UseDLQ:      true,
+			MinIdle:     time.Second * 15,
+			Block:       time.Second * 5,
+		},
+		h.HandlePasswordRecovery,
 	)
 }

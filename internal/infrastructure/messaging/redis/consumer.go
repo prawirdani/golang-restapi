@@ -17,12 +17,16 @@ type ConsumerConfig struct {
 	Stream      string
 	Group       string
 	Consumer    string
-	DLQStream   string
+	UseDLQ      bool
 	BatchSize   int64
 	Concurrency int
 	Block       time.Duration
 	MinIdle     time.Duration // idle threshold before XAUTOCLAIM reclaims
 	MaxRetries  int64
+}
+
+type Consumer interface {
+	Start(ctx context.Context) error
 }
 
 type StreamConsumer[T any] struct {
@@ -183,7 +187,7 @@ func (c *StreamConsumer[T]) ack(ctx context.Context, id string) {
 // toDLQ writes to the DLQ stream, preserving original payload plus metadata.
 // Called AFTER ack — duplicates in DLQ are acceptable; lost messages are not.
 func (c *StreamConsumer[T]) toDLQ(ctx context.Context, m redis.XMessage, reason, errMsg string) {
-	if c.cfg.DLQStream == "" {
+	if !c.cfg.UseDLQ {
 		return
 	}
 
@@ -196,7 +200,7 @@ func (c *StreamConsumer[T]) toDLQ(ctx context.Context, m redis.XMessage, reason,
 	values["_failed_at"] = time.Now().UTC().Format(time.RFC3339)
 
 	if err := c.rdb.XAdd(ctx, &redis.XAddArgs{
-		Stream: c.cfg.DLQStream,
+		Stream: c.cfg.Stream + ".dlq",
 		Values: values,
 	}).Err(); err != nil {
 		log.ErrorCtx(ctx, "DLQ write failed", err, "id", m.ID)

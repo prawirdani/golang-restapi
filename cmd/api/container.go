@@ -45,13 +45,13 @@ func NewContainer(
 	// Setup Services
 	userService := user.NewService(pg, userRepo, r2Storage)
 
-	emailProducer := redisstream.NewEmailProducer(rdb)
+	emailEventProducer := redisstream.NewEmailEventProducer(rdb)
 	authSvc := auth.NewService(
 		cfg.Auth,
 		pg,
 		userRepo,
 		authRepo,
-		emailProducer,
+		emailEventProducer,
 	)
 
 	c := &Container{
