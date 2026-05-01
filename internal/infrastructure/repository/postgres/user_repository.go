@@ -3,12 +3,13 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 
+	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/prawirdani/golang-restapi/internal/domain"
 	"github.com/prawirdani/golang-restapi/internal/domain/user"
-	"github.com/prawirdani/golang-restapi/pkg/log"
 	strs "github.com/prawirdani/golang-restapi/pkg/strings"
 )
 
@@ -40,14 +41,13 @@ func (r *userRepository) Store(ctx context.Context, u *user.User) error {
 	query := generateInsertQuery("users", args) + "\nRETURNING created_at, updated_at"
 	conn := r.db.GetConn(ctx)
 	if err := conn.QueryRow(ctx, query, args).Scan(&u.CreatedAt, &u.UpdatedAt); err != nil {
-		if uniqueViolationErr(err, "users_email_unique") {
+		if uniqueViolationErr(err, "users_email_key") {
 			return user.ErrEmailConflict.WithDetails(map[string]any{
 				"email": u.Email,
 			})
 		}
 
-		log.ErrorCtx(ctx, "Failed to store user", err)
-		return err
+		return fmt.Errorf("store user: %w", err)
 	}
 	return nil
 }
@@ -84,11 +84,12 @@ func (r *userRepository) Update(ctx context.Context, u *user.User) error {
 	err := conn.QueryRow(ctx, query, args).Scan(&u.UpdatedAt)
 	if err != nil {
 		if uniqueViolationErr(err, "users_email_key") {
-			return user.ErrEmailConflict
+			return user.ErrEmailConflict.WithDetails(map[string]any{
+				"email": u.Email,
+			})
 		}
 
-		log.ErrorCtx(ctx, "Failed to update user", err)
-		return err
+		return fmt.Errorf("update user: %w", err)
 	}
 
 	return nil
@@ -103,8 +104,7 @@ func (r *userRepository) Delete(ctx context.Context, u *user.User) error {
 	conn := r.db.GetConn(ctx)
 	_, err := conn.Exec(ctx, "UPDATE users SET deleted_at=NOW() WHERE id=$1", u.ID)
 	if err != nil {
-		log.ErrorCtx(ctx, "Failed to delete user", err)
-		return err
+		return fmt.Errorf("delete user: %w", err)
 	}
 
 	return nil
@@ -126,20 +126,19 @@ func (r *userRepository) getUserBy(
 		query += "\nFOR UPDATE"
 	}
 
-	rows, err := conn.Query(ctx, query, value)
-	if err != nil {
-		log.ErrorCtx(ctx, "Failed to query user", err)
-		return nil, err
-	}
-
-	usr, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[user.User])
-	if err != nil {
+	var u user.User
+	if err := pgxscan.Get(ctx, conn, &u, query, value); err != nil {
 		if noRowsErr(err) {
-			return nil, domain.ErrNotFound
+			key := "user_id"
+			if field == "email" {
+				key = "user_email"
+			}
+			return nil, domain.ErrNotFound.WithDetails(map[string]any{
+				key: value,
+			})
 		}
-		log.ErrorCtx(ctx, "Failed to collect user row", err)
-		return nil, err
+		return nil, fmt.Errorf("query: %w", err)
 	}
 
-	return &usr, nil
+	return &u, nil
 }

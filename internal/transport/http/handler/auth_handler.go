@@ -37,11 +37,11 @@ func (h *AuthHandler) Register(c *httpx.Context) error {
 
 	var reqBody auth.RegisterInput
 	if err := c.BindValidate(&reqBody); err != nil {
-		log.ErrorCtx(ctx, "Failed to bind & validate create user input", err)
 		return err
 	}
 
 	if err := h.authService.Register(ctx, reqBody); err != nil {
+		log.ErrorCtx(ctx, "Failed to register user", err)
 		return err
 	}
 
@@ -55,13 +55,13 @@ func (h *AuthHandler) Login(c *httpx.Context) error {
 
 	var reqBody auth.LoginInput
 	if err := c.BindValidate(&reqBody); err != nil {
-		log.ErrorCtx(ctx, "Failed to bind & validate login input", err)
 		return err
 	}
 	reqBody.UserAgent = c.Get("User-Agent")
 
 	tokens, err := h.authService.Login(ctx, reqBody)
 	if err != nil {
+		log.ErrorCtx(ctx, "Failed to login", err)
 		return err
 	}
 
@@ -84,6 +84,7 @@ func (h *AuthHandler) GetCurrentUser(c *httpx.Context) error {
 
 	usr, err := h.userService.GetUserByID(ctx, claims.UserID)
 	if err != nil {
+		log.ErrorCtx(ctx, "Failed to get current user", err)
 		return err
 	}
 
@@ -93,6 +94,8 @@ func (h *AuthHandler) GetCurrentUser(c *httpx.Context) error {
 }
 
 func (h *AuthHandler) RefreshAccessToken(c *httpx.Context) error {
+	ctx := c.Context()
+
 	var refreshToken string
 
 	if cookie, err := c.GetCookie(httpx.RefreshTokenCookie); err == nil {
@@ -112,8 +115,9 @@ func (h *AuthHandler) RefreshAccessToken(c *httpx.Context) error {
 		return httpx.ErrReqUnauthorized
 	}
 
-	tokens, err := h.authService.RefreshAccessToken(c.Context(), refreshToken)
+	tokens, err := h.authService.RefreshAccessToken(ctx, refreshToken)
 	if err != nil {
+		log.ErrorCtx(ctx, "Failed to refresh access token", err)
 		return err
 	}
 
@@ -146,11 +150,11 @@ func (h *AuthHandler) RecoverPassword(c *httpx.Context) error {
 
 	var reqBody auth.RecoverPasswordInput
 	if err := c.BindValidate(&reqBody); err != nil {
-		log.ErrorCtx(ctx, "Failed to bind & validate recover password input", err)
 		return err
 	}
 
 	if err := h.authService.RecoverPassword(ctx, reqBody); err != nil {
+		log.ErrorCtx(ctx, "Failed to recover password", err)
 		return err
 	}
 
@@ -160,10 +164,12 @@ func (h *AuthHandler) RecoverPassword(c *httpx.Context) error {
 }
 
 func (h *AuthHandler) GetPasswordRecoveryToken(c *httpx.Context) error {
+	ctx := c.Context()
 	token := c.Param("token")
 
-	tokenObj, err := h.authService.GetPasswordRecoveryToken(c.Context(), token)
+	tokenObj, err := h.authService.GetPasswordRecoveryToken(ctx, token)
 	if err != nil {
+		log.ErrorCtx(ctx, "Failed to get password recovery token", err)
 		return err
 	}
 
@@ -177,11 +183,11 @@ func (h *AuthHandler) ResetPassword(c *httpx.Context) error {
 
 	var reqBody auth.ResetPasswordInput
 	if err := c.BindValidate(&reqBody); err != nil {
-		log.ErrorCtx(ctx, "Failed to bind & validate reset password input", err)
 		return err
 	}
 
 	if err := h.authService.ResetPassword(ctx, reqBody); err != nil {
+		log.ErrorCtx(ctx, "Failed to reset password", err)
 		return err
 	}
 
@@ -195,7 +201,6 @@ func (h *AuthHandler) ChangePassword(c *httpx.Context) error {
 
 	var reqBody auth.ChangePasswordInput
 	if err := c.BindValidate(&reqBody); err != nil {
-		log.ErrorCtx(ctx, "Failed to bind & validate change password input", err)
 		return err
 	}
 
@@ -205,6 +210,7 @@ func (h *AuthHandler) ChangePassword(c *httpx.Context) error {
 	}
 
 	if err := h.authService.ChangePassword(ctx, claims.UserID, reqBody); err != nil {
+		log.ErrorCtx(ctx, "Failed to change password", err)
 		return err
 	}
 

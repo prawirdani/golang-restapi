@@ -21,7 +21,7 @@ type Config struct {
 	AccessKeySecret string
 }
 
-// Cloudflare R2 Storage using AWS S3 Sdk, Implements storage.Storage interface
+// R2 Storage using AWS S3 Sdk, Implements [storage.Storage] interface
 type R2 struct {
 	bucket    string
 	publicURL *url.URL
@@ -77,7 +77,10 @@ func (r *R2) Put(
 		Body:        reader,
 		ContentType: aws.String(contentType),
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("r2 put: %w", err)
+	}
+	return nil
 }
 
 // Get implements storage.Storage.
@@ -87,7 +90,7 @@ func (r *R2) Get(ctx context.Context, path string) (io.ReadCloser, error) {
 		Key:    aws.String(path),
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("r2 get: %w", err)
 	}
 
 	return result.Body, nil
@@ -99,7 +102,11 @@ func (r *R2) Delete(ctx context.Context, path string) error {
 		Bucket: aws.String(r.bucket),
 		Key:    aws.String(path),
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("r2 delete: %w", err)
+	}
+
+	return nil
 }
 
 // Exists implements storage.Storage.
@@ -135,7 +142,7 @@ func (r *R2) GetURL(ctx context.Context, path string, expiry time.Duration) (str
 		opts.Expires = expiry
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("r2 get url: %w", err)
 	}
 
 	return presignResult.URL, nil

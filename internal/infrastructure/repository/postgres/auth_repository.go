@@ -3,13 +3,13 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/prawirdani/golang-restapi/internal/domain"
 	"github.com/prawirdani/golang-restapi/internal/domain/auth"
-	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 
 type authRepository struct {
@@ -41,8 +41,7 @@ func (r *authRepository) StoreSession(ctx context.Context, session *auth.Session
 
 	_, err := conn.Exec(ctx, query, args)
 	if err != nil {
-		log.ErrorCtx(ctx, "Failed to store session", err)
-		return err
+		return fmt.Errorf("store session: %w", err)
 	}
 
 	return nil
@@ -58,8 +57,7 @@ func (r *authRepository) UpdateSession(ctx context.Context, session *auth.Sessio
 	conn := r.db.GetConn(ctx)
 
 	if _, err := conn.Exec(ctx, query, session.RefreshTokenHash, session.RevokedAt, session.ID); err != nil {
-		log.ErrorCtx(ctx, "Failed to updated session", err)
-		return err
+		return fmt.Errorf("update session: %w", err)
 	}
 
 	return nil
@@ -81,8 +79,8 @@ func (r *authRepository) GetSessionByID(
 		if noRowsErr(err) {
 			return nil, domain.ErrNotFound
 		}
-		log.ErrorCtx(ctx, "Failed to get session by id", err)
-		return nil, err
+
+		return nil, fmt.Errorf("session by id: %w", err)
 	}
 
 	return &sess, nil
@@ -104,8 +102,7 @@ func (r *authRepository) GetSessionByRefreshTokenHash(
 		if noRowsErr(err) {
 			return nil, domain.ErrNotFound
 		}
-		log.ErrorCtx(ctx, "Failed to get session by refresh token hash", err)
-		return nil, err
+		return nil, fmt.Errorf("session by refresh_token token hash: %w", err)
 	}
 
 	return &session, nil
@@ -128,8 +125,7 @@ func (r *authRepository) GetPasswordRecoveryToken(
 		if noRowsErr(err) {
 			return nil, domain.ErrNotFound
 		}
-		log.ErrorCtx(ctx, "Failed to get password recovery token", err)
-		return nil, err
+		return nil, fmt.Errorf("get password recovery token: %w", err)
 	}
 
 	return &token, nil
@@ -153,8 +149,7 @@ func (r *authRepository) StorePasswordRecoveryToken(
 	conn := r.db.GetConn(ctx)
 
 	if _, err := conn.Exec(ctx, query, args); err != nil {
-		log.ErrorCtx(ctx, "Failed to store password recovery token", err)
-		return err
+		return fmt.Errorf("store password recovery token: %w", err)
 	}
 
 	return nil
@@ -173,8 +168,7 @@ func (r *authRepository) UpdatePasswordRecoveryToken(
 	conn := r.db.GetConn(ctx)
 
 	if _, err := conn.Exec(ctx, query, token.UsedAt, token.ID); err != nil {
-		log.ErrorCtx(ctx, "Failed to update password recovery token", err)
-		return err
+		return fmt.Errorf("update password recovery token: %w", err)
 	}
 
 	return nil

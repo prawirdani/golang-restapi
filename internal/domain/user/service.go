@@ -66,7 +66,6 @@ func (s *Service) ChangeProfilePicture(
 
 		//  Set New Image name using UUID
 		if err := file.SetName(uuid.NewString()); err != nil {
-			log.ErrorCtx(ctx, "Failed to set profile image file name", err)
 			return err
 		}
 
@@ -81,7 +80,6 @@ func (s *Service) ChangeProfilePicture(
 
 		//  Store new image to storage
 		if err := s.imageStorage.Put(ctx, newImagePath, file, file.ContentType()); err != nil {
-			log.ErrorCtx(ctx, "Failed to save user profile image", err)
 			return err
 		}
 
@@ -101,7 +99,7 @@ func (s *Service) ChangeProfilePicture(
 			if err := s.imageStorage.Delete(context.Background(), path); err != nil {
 				logger.Warn("Failed to cleanup previous profile image", "error", err.Error())
 			} else {
-				logger.Info("Success clean up previous profile image")
+				logger.Debug("Success clean up previous profile image")
 			}
 		}(prevImagePath, logger)
 	}
