@@ -3,8 +3,8 @@ package redis
 import (
 	"context"
 
-	"github.com/prawirdani/golang-restapi/internal/domain/auth"
-	"github.com/prawirdani/golang-restapi/internal/infrastructure/messaging"
+	"github.com/prawirdani/golang-restapi/internal/auth"
+	"github.com/prawirdani/golang-restapi/internal/messaging"
 	"github.com/redis/go-redis/v9"
 )
 

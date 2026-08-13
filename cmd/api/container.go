@@ -2,12 +2,11 @@ package main
 
 import (
 	"github.com/prawirdani/golang-restapi/config"
-	"github.com/prawirdani/golang-restapi/internal/domain/auth"
-	"github.com/prawirdani/golang-restapi/internal/domain/user"
-	redisstream "github.com/prawirdani/golang-restapi/internal/infrastructure/messaging/redis"
-	rd "github.com/prawirdani/golang-restapi/internal/infrastructure/redis"
+	"github.com/prawirdani/golang-restapi/internal/auth"
+	"github.com/prawirdani/golang-restapi/internal/user"
+	redisInfra "github.com/prawirdani/golang-restapi/internal/infrastructure/redis"
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/repository/postgres"
-	"github.com/prawirdani/golang-restapi/internal/infrastructure/storage/r2"
+	"github.com/prawirdani/golang-restapi/internal/infrastructure/r2"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -39,7 +38,7 @@ func NewContainer(
 		return nil, err
 	}
 
-	redisThrottler := rd.NewRedisThrottler(rdb)
+	redisThrottler := redisInfra.NewRedisThrottler(rdb)
 
 	// Repos init
 	userRepo := postgres.NewUserRepository(pg)
@@ -48,7 +47,7 @@ func NewContainer(
 	// Setup Services
 	userService := user.NewService(pg, userRepo, r2Storage)
 
-	emailEventProducer := redisstream.NewEmailEventProducer(rdb)
+	emailEventProducer := redisInfra.NewEmailEventProducer(rdb)
 	authSvc := auth.NewService(
 		cfg.Auth,
 		pg,

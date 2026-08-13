@@ -121,8 +121,7 @@ func (r *R2) Exists(ctx context.Context, path string) (bool, error) {
 		// Only a genuine 404 means "does not exist". Auth/network/5xx
 		// failures must surface — silently treating them as "not found" would
 		// mask real outages. HeadObject returns the typed NotFound error.
-		var notFound *types.NotFound
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*types.NotFound](err); ok {
 			return false, nil
 		}
 		return false, fmt.Errorf("r2 exists: %w", err)

@@ -5,9 +5,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/prawirdani/golang-restapi/internal/domain/auth"
-	"github.com/prawirdani/golang-restapi/internal/infrastructure/messaging"
-	redisstream "github.com/prawirdani/golang-restapi/internal/infrastructure/messaging/redis"
+	"github.com/prawirdani/golang-restapi/internal/auth"
+	"github.com/prawirdani/golang-restapi/internal/messaging"
+	redisstream "github.com/prawirdani/golang-restapi/internal/infrastructure/redis"
 	"github.com/prawirdani/golang-restapi/pkg/mailer"
 	"github.com/redis/go-redis/v9"
 )

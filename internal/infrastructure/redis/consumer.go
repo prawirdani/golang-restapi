@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prawirdani/golang-restapi/internal/infrastructure/messaging"
+	"github.com/prawirdani/golang-restapi/internal/messaging"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 	"github.com/redis/go-redis/v9"
 )
