@@ -16,7 +16,7 @@ func TestSignAccessToken(t *testing.T) {
 	uid := uuid.New()
 	sid := uuid.New()
 
-	token, err := SignAccessToken(secret, uid, sid, time.Minute*5)
+	token, err := SignAccessToken(secret, time.Minute*5, uid, sid, RoleAdmin)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 }
@@ -24,7 +24,7 @@ func TestSignAccessToken(t *testing.T) {
 func TestVerifyAccessToken(t *testing.T) {
 	uid := uuid.New()
 	sid := uuid.New()
-	token, err := SignAccessToken(secret, uid, sid, time.Minute*5)
+	token, err := SignAccessToken(secret, time.Minute*5, uid, sid, RoleAdmin)
 	require.NoError(t, err)
 
 	claims, err := VerifyAccessToken(secret, token)
@@ -35,7 +35,7 @@ func TestVerifyAccessToken(t *testing.T) {
 		uid := uuid.New()
 		sid := uuid.New()
 
-		token, err := SignAccessToken(secret, uid, sid, -time.Minute*1)
+		token, err := SignAccessToken(secret, -time.Minute*1, uid, sid, RoleAdmin)
 		require.NoError(t, err)
 
 		_, err = VerifyAccessToken(secret, token)

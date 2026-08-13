@@ -4,16 +4,16 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/prawirdani/golang-restapi/internal/domain"
+	"github.com/prawirdani/golang-restapi/internal/apperr"
 	"github.com/prawirdani/golang-restapi/pkg/nullable"
 )
 
-var ErrInvalidPasswordRecoveryToken = domain.UnauthorizedErr(
+var ErrInvalidPasswordRecoveryToken = apperr.UnauthorizedErr(
 	"invalid or expired password recovery token",
 	"AUTH_INVALID_RECOV_TOKEN",
 )
 
-var ErrPasswordRecoveryThrottled = domain.ThrottledErr(
+var ErrPasswordRecoveryThrottled = apperr.ThrottledErr(
 	"too many password reset requests, please try again later",
 	"AUTH_RECOVERY_THROTTLED",
 )

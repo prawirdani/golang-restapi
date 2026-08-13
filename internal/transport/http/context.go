@@ -1,12 +1,12 @@
 // Package http provides HTTP transport utilities for the application.
 //
 // It includes:
-//   - Domain-specific HTTP handlers that delegate business logic to services (handler/*)
+//   - Entity-specific HTTP handlers that delegate business logic to services (handler/*)
 //   - Middleware for request processing, authentication, logging, etc. (middleware/*)
 //   - Helpers for request context, JSON responses, error handling, and request body parsing
 //
 // Handlers should focus only on HTTP concerns and formatting responses.
-// Business logic belongs in the domain/service layers. This package is internal
+// Business logic belongs in the service layers. This package is internal
 // and not intended for use outside the application.
 package http
 

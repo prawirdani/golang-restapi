@@ -14,9 +14,9 @@ cmd/
   worker/             - Message consumer/worker entrypoint
 
 internal/
-  domain/             - business models, services, interfaces
-    auth/             - auth service, session, access token, password recovery
-    user/             - user service and repository interfaces
+  auth/               - auth service, session, access token, password recovery
+  user/               - user service and repository interfaces
+  apperr/             - application error kernel: typed errors and kinds
   infrastructure/
     repository/       - postgres implementations
     messaging/        - redis stream producer & consumer implementations
@@ -72,7 +72,7 @@ Redis Stream with consumer groups. Each stream uses a consumer group with pendin
 stream → consumer group → pending entries (PEL) → ack → DLQ stream after MaxRetry
 ```
 
-The worker consumes messages via `go-redis`. Auth domain publishes password recovery emails asynchronously to decouple SMTP from HTTP response time. Reliability features:
+The worker consumes messages via `go-redis`. Auth publishes password recovery emails asynchronously to decouple SMTP from HTTP response time. Reliability features:
 
 - **Idempotency**: each envelope carries an `ID`; a `SETNX` dedup key prevents duplicate emails on redelivery (at-least-once without duplicates).
 - **Panic isolation**: message handler panics are recovered and routed to the DLQ — one poison message can't crash the worker.

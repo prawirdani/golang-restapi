@@ -31,9 +31,9 @@ cmd/api/                 # API entrypoint: main.go, server.go (routes), containe
 cmd/worker/              # Background worker entrypoint
 config/                  # Env-based config (App, Postgres, Redis, Auth, CORS, SMTP, R2)
 internal/
-  domain/                # Business logic — ZERO infrastructure imports
-    auth/                # JWT, sessions, password recovery, crypto
-    user/                # CRUD, profile picture
+  auth/                  # Auth business logic — JWT, sessions, password recovery, crypto
+  user/                  # User business logic — CRUD, profile picture
+  apperr/                # Application error kernel: typed errors, kinds, translation helpers
   infrastructure/
     repository/postgres/ # pgx repository implementations
     storage/r2/          # R2 storage
@@ -46,7 +46,7 @@ migrations/              # Goose SQL migrations
 
 ## Architecture
 
-- **Onion/Clean**: interfaces live in `domain/`, implementations in `infrastructure/`. Domain imports no infrastructure.
+- **Onion/Clean**: interfaces live in `auth/`/`user/`, implementations in `infrastructure/`. Entity packages import no infrastructure.
 - **Dependency inversion**: services depend on interfaces (`user.Repository`, `auth.Repository`, `storage.Storage`, `repository.Transactor`).
 - **DI**: `cmd/api/container.go` wires everything manually — no framework.
 - Handler (HTTP only) -> Service (business logic) -> Repository (data access).
@@ -68,7 +68,7 @@ func (h *AuthHandler) Login(c *httpx.Context) error {
 }
 ```
 
-**Errors** — `domain.Error` with `ErrorKind` (`KindValidation`, `KindNotFound`, `KindConflict`, `KindUnauthorized`, `KindForbidden`). Immutable (`WithDetails`/`SetMessage` return copies), supports `errors.Is`. `httpx.NormalizeError` maps kinds to HTTP status.
+**Errors** — `apperr.Error` with `ErrorKind` (`KindValidation`, `KindNotFound`, `KindConflict`, `KindUnauthorized`, `KindForbidden`). Immutable (`WithDetails`/`SetMessage` return copies), supports `errors.Is`. `httpx.NormalizeError` maps kinds to HTTP status.
 
 **Transactions** — wrap multi-step writes in `s.transactor.Transact`. Repositories detect the tx via `db.GetConn(ctx)` and reuse the connection (adding `FOR UPDATE`). Rollback/commit run on `context.WithoutCancel(ctx)` with a 5s timeout so a cancelled request ctx doesn't destroy the pooled connection.
 
@@ -88,7 +88,7 @@ err := s.transactor.Transact(ctx, func(ctx context.Context) error {
 
 **Worker/messaging** — consumer handlers must never panic: `handle` has a deferred recover that routes to the DLQ. Envelopes carry an `ID` consumed by the SetNX dedup key (`dedup:<stream>:<id>`) — never bypass it when adding message types. Ack/DLQ writes use `context.WithoutCancel`. SMTP send bounded at 10s; keep any new blocking op bounded too.
 
-**Testing** — table-driven with `t.Run` subtests. `setupTestFixture(t)` wires mocks + service and registers `t.Cleanup()`. Mocks: entity-scoped in `internal/domain/<entity>/mocks/`, reusable in `internal/testing/mocks/`.
+**Testing** — table-driven with `t.Run` subtests. `setupTestFixture(t)` wires mocks + service and registers `t.Cleanup()`. Mocks: entity-scoped in `internal/<entity>/mocks/`, reusable in `internal/testing/mocks/`.
 
 **Logging** — structured/context-aware via `pkg/log`. Set at startup: `log.SetLogger(log.NewZerologAdapter(cfg.IsProduction()))`. Request-scoped fields (request_id, uid/sid) flow through context. Debug in dev, Info in prod.
 
@@ -99,7 +99,7 @@ err := s.transactor.Transact(ctx, func(ctx context.Context) error {
 Project-specific skills in `.agents/skills/` encode this repo's style, architecture, and guidelines. Load them (they auto-trigger) whenever working on the related layer:
 
 - **gorest-architecture** — layering, dependency direction, interfaces, DI wiring, aliases, naming
-- **gorest-errors** — domain error constructors/kinds, immutable copies, repo error translation
+- **gorest-errors** — apperr error constructors/kinds, immutable copies, repo error translation
 - **gorest-handlers** — httpx handler signature, BindValidate, response envelope, cookies, multipart
 - **gorest-repositories** — pgx builders, pgxscan, tx-aware GetConn/FOR UPDATE, error mapping
 - **gorest-services** — Transact, post-commit side effects, nullable+Validate, async cleanup
@@ -109,9 +109,9 @@ These supersede generic samber guidance where they overlap.
 
 ## Adding a Feature
 
-1. Define model + service interface in `internal/domain/<entity>/` (with godoc).
+1. Define model + service interface in `internal/<entity>/` (with godoc).
 2. Implement repository in `internal/infrastructure/repository/postgres/`.
-3. Add service implementation in `internal/domain/<entity>/`.
+3. Add service implementation in `internal/<entity>/`.
 4. Add handler in `internal/transport/http/handler/`.
 5. Wire in `cmd/api/container.go`; register routes in `cmd/api/server.go` (`setupHandlers`).
 6. Add migration via `make migration:create`.

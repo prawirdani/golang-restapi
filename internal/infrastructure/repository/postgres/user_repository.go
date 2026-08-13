@@ -8,8 +8,8 @@ import (
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/prawirdani/golang-restapi/internal/domain"
-	"github.com/prawirdani/golang-restapi/internal/domain/user"
+	"github.com/prawirdani/golang-restapi/internal/apperr"
+	"github.com/prawirdani/golang-restapi/internal/user"
 	strs "github.com/prawirdani/golang-restapi/pkg/strings"
 )
 
@@ -145,7 +145,7 @@ func (r *userRepository) getUserBy(
 	var u user.User
 	if err := pgxscan.Get(ctx, conn, &u, query, value); err != nil {
 		if noRowsErr(err) {
-			return nil, domain.ErrNotFound.WithDetails(map[string]any{
+			return nil, apperr.ErrNotFound.WithDetails(map[string]any{
 				"user_" + field: value,
 			})
 		}

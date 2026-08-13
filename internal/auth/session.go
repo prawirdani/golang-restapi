@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/prawirdani/golang-restapi/internal/domain"
+	"github.com/prawirdani/golang-restapi/internal/apperr"
 	"github.com/prawirdani/golang-restapi/pkg/nullable"
 )
 
 var (
-	ErrSessionInvalid    = domain.UnauthorizedErr("session has been expired or revoked", "AUTH_INVALID_SESSION")
+	ErrSessionInvalid    = apperr.UnauthorizedErr("session has been expired or revoked", "AUTH_INVALID_SESSION")
 	ErrSessionEmptyUID   = errors.New("user_id must not be empty")
 	ErrSessionInvalidTTL = errors.New("session ttl must be greater than 0")
 )

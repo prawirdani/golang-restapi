@@ -1,4 +1,4 @@
-// Package user provides the domain model and business logic for managing users in system.
+// Package user provides the data model and business logic for managing users in system.
 package user
 
 import (
@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/repository"
-	"github.com/prawirdani/golang-restapi/internal/infrastructure/storage"
+	"github.com/prawirdani/golang-restapi/internal/storage"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 

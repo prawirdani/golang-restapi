@@ -11,12 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/prawirdani/golang-restapi/config"
-	"github.com/prawirdani/golang-restapi/internal/domain"
-	"github.com/prawirdani/golang-restapi/internal/domain/auth"
-	"github.com/prawirdani/golang-restapi/internal/domain/auth/mocks"
-	"github.com/prawirdani/golang-restapi/internal/domain/user"
-	"github.com/prawirdani/golang-restapi/internal/throttle"
+	"github.com/prawirdani/golang-restapi/internal/apperr"
+	"github.com/prawirdani/golang-restapi/internal/auth"
+	"github.com/prawirdani/golang-restapi/internal/auth/mocks"
+	"github.com/prawirdani/golang-restapi/internal/user"
 	sharedMocks "github.com/prawirdani/golang-restapi/internal/testing/mocks"
+	"github.com/prawirdani/golang-restapi/internal/throttle"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 
@@ -103,7 +103,7 @@ func TestService_Login(t *testing.T) {
 			Password: "password123",
 		}
 
-		f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, domain.ErrNotFound)
+		f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, apperr.ErrNotFound)
 
 		tokenPair, err := f.service.Login(ctx, input)
 
@@ -402,13 +402,13 @@ func TestService_RecoverPassword(t *testing.T) {
 		f.transactor.EXPECT().
 			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
 			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
-				f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, domain.ErrNotFound)
+				f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, apperr.ErrNotFound)
 				return fn(ctx)
 			})
 
 		_, err := f.service.RecoverPassword(ctx, input)
 		assert.Error(t, err)
-		assert.ErrorIs(t, err, domain.ErrNotFound)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }
 
@@ -612,7 +612,7 @@ func TestService_ResetPassword_TokenNotFound(t *testing.T) {
 		RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
 			f.authRepo.EXPECT().
 				GetPasswordRecoveryToken(ctx, mock.AnythingOfType("[]uint8")).
-				Return(nil, domain.ErrNotFound)
+				Return(nil, apperr.ErrNotFound)
 			return fn(ctx)
 		})
 
@@ -661,12 +661,12 @@ func TestService_ChangePassword_UserNotFound(t *testing.T) {
 		NewPassword: "newpassword123",
 	}
 
-	f.userRepo.EXPECT().GetByID(ctx, userID).Return(nil, domain.ErrNotFound)
+	f.userRepo.EXPECT().GetByID(ctx, userID).Return(nil, apperr.ErrNotFound)
 
 	err := f.service.ChangePassword(ctx, userID, input)
 
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, domain.ErrNotFound)
+	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
 func TestGenerateOpaqueToken_InvalidSize(t *testing.T) {
@@ -685,7 +685,7 @@ func TestGenerateOpaqueToken_WithPrefix(t *testing.T) {
 func TestVerifyAccessToken_InvalidSignature(t *testing.T) {
 	userID := uuid.New()
 	sessID := uuid.New()
-	token, err := auth.SignAccessToken("correct-secret", userID, sessID, time.Hour)
+	token, err := auth.SignAccessToken("correct-secret", time.Hour, userID, sessID, auth.RoleSystem)
 	require.NoError(t, err)
 
 	_, err = auth.VerifyAccessToken("wrong-secret", token)

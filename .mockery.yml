@@ -19,7 +19,7 @@ packages:
         config:
           filename: transactor.go
 
-  github.com/prawirdani/golang-restapi/internal/infrastructure/storage:
+  github.com/prawirdani/golang-restapi/internal/storage:
     interfaces:
       Storage:
         config:
@@ -34,28 +34,28 @@ packages:
         config:
           filename: throttler.go
 
-  github.com/prawirdani/golang-restapi/internal/domain/auth:
+  github.com/prawirdani/golang-restapi/internal/auth:
     interfaces:
       Repository:
         config:
-          dir: "./internal/domain/auth/mocks"
+          dir: "./internal/auth/mocks"
           structname: "{{.InterfaceName}}"
           filename: repository.go
       UserRepository:
         config:
-          dir: "./internal/domain/auth/mocks"
+          dir: "./internal/auth/mocks"
           structname: "{{.InterfaceName}}"
           filename: user_repository.go
       Mailer:
         config:
-          dir: "./internal/domain/auth/mocks"
+          dir: "./internal/auth/mocks"
           structname: "{{.InterfaceName}}"
           filename: mailer.go
 
-  github.com/prawirdani/golang-restapi/internal/domain/user:
+  github.com/prawirdani/golang-restapi/internal/user:
     interfaces:
       Repository:
         config:
-          dir: "./internal/domain/user/mocks"
+          dir: "./internal/user/mocks"
           structname: "{{.InterfaceName}}"
           filename: repository.go

@@ -1,4 +1,4 @@
-// Package user provides the domain model and business logic for managing users in system.
+// Package user provides the data model and business logic for managing users in system.
 package user
 
 import (
@@ -14,11 +14,11 @@ type Repository interface {
 	Store(ctx context.Context, u *User) error
 
 	// GetByID retrieves a user by their unique identifier.
-	// Returns [domain.ErrNotFound] if no user exists with the given ID.
+	// Returns [apperr.ErrNotFound] if no user exists with the given ID.
 	GetByID(ctx context.Context, userID uuid.UUID) (*User, error)
 
 	// GetByEmail retrieves a user by their email address.
-	// Returns [domain.ErrNotFound] if no user exists with the given email.
+	// Returns [apperr.ErrNotFound] if no user exists with the given email.
 	GetByEmail(ctx context.Context, email string) (*User, error)
 
 	// Update modifies an existing user record.

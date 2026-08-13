@@ -9,7 +9,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/prawirdani/golang-restapi/internal/domain/user"
+	"github.com/prawirdani/golang-restapi/internal/user"
 )
 
 // Repository defines the persistence operations for authentication data.
@@ -19,12 +19,12 @@ type Repository interface {
 
 	// GetSessionByID retrieves a session by its ID.
 	//
-	// Returns [domain.ErrNotFound] if no session exists with the given sessionID
+	// Returns [apperr.ErrNotFound] if no session exists with the given sessionID
 	GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*Session, error)
 
 	// GetSessionByRefreshToken retrieves a session by refresh token hash
 	//
-	// Returns [domain.ErrNotFound] if no session exists with the given tokenHash
+	// Returns [apperr.ErrNotFound] if no session exists with the given tokenHash
 	GetSessionByRefreshTokenHash(ctx context.Context, tokenHash []byte) (*Session, error)
 
 	// UpdateSession updates an existing session.
@@ -47,7 +47,7 @@ type Repository interface {
 
 	// GetPasswordRecoveryToken retrieves a token by its value.
 	//
-	// Returns [domain.ErrNotFound] if no token exists with the given tokenHash
+	// Returns [apperr.ErrNotFound] if no token exists with the given tokenHash
 	GetPasswordRecoveryToken(ctx context.Context, tokenHash []byte) (*PasswordRecoveryToken, error)
 }
 

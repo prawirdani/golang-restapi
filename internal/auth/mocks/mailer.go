@@ -7,7 +7,7 @@ package mocks
 import (
 	"context"
 
-	"github.com/prawirdani/golang-restapi/internal/domain/auth"
+	"github.com/prawirdani/golang-restapi/internal/auth"
 	mock "github.com/stretchr/testify/mock"
 )
 

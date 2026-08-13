@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/prawirdani/golang-restapi/internal/domain"
+	"github.com/prawirdani/golang-restapi/internal/apperr"
 	"github.com/prawirdani/golang-restapi/pkg/validator"
 )
 
@@ -131,7 +131,7 @@ func NormalizeError(err error) *Error {
 		maxBytesErr   *http.MaxBytesError
 		jsonBindErr   *JSONBindError
 		validationErr *validator.ValidationError
-		domainErr     *domain.Error
+		appErr     *apperr.Error
 	)
 
 	switch {
@@ -156,11 +156,11 @@ func NormalizeError(err error) *Error {
 		body.Message = "the request contains invalid data"
 		body.Details = validationErr.Details
 		body.Code = "VALIDATION"
-	case errors.As(err, &domainErr):
-		body.status = getDomainErrStatusCode(domainErr.Kind())
-		body.Message = domainErr.Message
-		body.Details = domainErr.Details
-		body.Code = domainErr.Code()
+	case errors.As(err, &appErr):
+		body.status = appErrStatusCode(appErr.Kind())
+		body.Message = appErr.Message
+		body.Details = appErr.Details
+		body.Code = appErr.Code()
 	}
 
 	return body
@@ -219,17 +219,17 @@ func IsMissingFileError(err error) bool {
 	return false
 }
 
-var domainErrStatusMap = map[domain.ErrorKind]int{
-	domain.KindNotFound:     http.StatusNotFound,
-	domain.KindValidation:   http.StatusUnprocessableEntity,
-	domain.KindConflict:     http.StatusConflict,
-	domain.KindForbidden:    http.StatusForbidden,
-	domain.KindUnauthorized: http.StatusUnauthorized,
-	domain.KindThrottled:    http.StatusTooManyRequests,
+var appErrStatusMap = map[apperr.ErrorKind]int{
+	apperr.KindNotFound:     http.StatusNotFound,
+	apperr.KindValidation:   http.StatusUnprocessableEntity,
+	apperr.KindConflict:     http.StatusConflict,
+	apperr.KindForbidden:    http.StatusForbidden,
+	apperr.KindUnauthorized: http.StatusUnauthorized,
+	apperr.KindThrottled:    http.StatusTooManyRequests,
 }
 
-func getDomainErrStatusCode(kind domain.ErrorKind) int {
-	if status, ok := domainErrStatusMap[kind]; ok {
+func appErrStatusCode(kind apperr.ErrorKind) int {
+	if status, ok := appErrStatusMap[kind]; ok {
 		return status
 	}
 	return http.StatusInternalServerError

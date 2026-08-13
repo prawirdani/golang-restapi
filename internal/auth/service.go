@@ -13,8 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/config"
-	"github.com/prawirdani/golang-restapi/internal/domain"
-	"github.com/prawirdani/golang-restapi/internal/domain/user"
+	"github.com/prawirdani/golang-restapi/internal/apperr"
+	"github.com/prawirdani/golang-restapi/internal/user"
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/repository"
 	"github.com/prawirdani/golang-restapi/internal/throttle"
 	"github.com/prawirdani/golang-restapi/pkg/log"
@@ -75,7 +75,7 @@ func (s *Service) Login(
 	usr, err := s.userRepo.GetByEmail(ctx, inp.Email)
 	if err != nil {
 		// Surface real DB errors (e.g. outage) instead of masking them as 401.
-		if !errors.Is(err, domain.ErrNotFound) {
+		if !errors.Is(err, apperr.ErrNotFound) {
 			return nil, err
 		}
 		// Equalize timing with a dummy bcrypt compare so user enumeration
@@ -132,7 +132,7 @@ func (s *Service) RefreshAccessToken(
 	err := s.transactor.Transact(ctx, func(ctx context.Context) error {
 		sess, err := s.authRepo.GetSessionByRefreshTokenHash(ctx, sum)
 		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
+			if errors.Is(err, apperr.ErrNotFound) {
 				return ErrSessionInvalid
 			}
 			return err
@@ -144,7 +144,8 @@ func (s *Service) RefreshAccessToken(
 
 		if sess.RevokedAt.NotNull() {
 			// ponytail: logs reuse signal; full token-family/history tracking out of scope (no schema change)
-			log.WarnCtx(ctx, "Refresh attempt against revoked session; possible token reuse",
+			log.WarnCtx(
+				ctx, "Refresh attempt against revoked session; possible token reuse",
 				"user_id", sess.UserID.String(),
 				"session_id", sess.ID.String(),
 			)
@@ -253,7 +254,7 @@ func (s *Service) ResetPassword(ctx context.Context, inp ResetPasswordInput) err
 	return s.transactor.Transact(ctx, func(ctx context.Context) error {
 		token, err := s.authRepo.GetPasswordRecoveryToken(ctx, sum)
 		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
+			if errors.Is(err, apperr.ErrNotFound) {
 				return ErrInvalidPasswordRecoveryToken
 			}
 			return err
@@ -322,5 +323,5 @@ func (s *Service) ChangePassword(
 }
 
 func (s *Service) generateAccessToken(userID, sessID uuid.UUID) (string, error) {
-	return SignAccessToken(s.cfg.JwtSecret, userID, sessID, s.cfg.JwtTTL)
+	return SignAccessToken(s.cfg.JwtSecret, s.cfg.JwtTTL, userID, sessID, RoleAdmin)
 }

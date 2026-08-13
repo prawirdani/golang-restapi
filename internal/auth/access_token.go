@@ -13,11 +13,11 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/prawirdani/golang-restapi/internal/domain"
+	"github.com/prawirdani/golang-restapi/internal/apperr"
 )
 
 var (
-	ErrAccessTokenExpired        = domain.UnauthorizedErr("access token expired", "AUTH_EXPIRED")
+	ErrAccessTokenExpired        = apperr.UnauthorizedErr("access token expired", "AUTH_EXPIRED")
 	ErrAccessTokenClaimsNotFound = errors.New("access token claims not found in context")
 )
 
@@ -29,6 +29,7 @@ var (
 // RegisteredClaims contains standard JWT fields like exp, iat, and iss.
 type AccessTokenClaims struct {
 	UserID    uuid.UUID `json:"-"`
+	Role      Role      `json:"role"`
 	SessionID uuid.UUID `json:"sid"`
 	jwt.RegisteredClaims
 }
@@ -36,13 +37,15 @@ type AccessTokenClaims struct {
 // SignAccessToken generates a new JWT for access token
 func SignAccessToken(
 	secretKey string,
+	ttl time.Duration,
 	userID uuid.UUID,
 	sessID uuid.UUID,
-	ttl time.Duration,
+	role Role,
 ) (string, error) {
 	now := time.Now()
 
 	claims := AccessTokenClaims{
+		Role:      role,
 		SessionID: sessID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),

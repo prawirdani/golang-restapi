@@ -1,4 +1,5 @@
-package domain
+// Package apperr defines the application error kernel: typed errors, kinds, and translation helpers.
+package apperr
 
 import (
 	"encoding/json"
@@ -17,7 +18,7 @@ const (
 	KindThrottled
 )
 
-type DomainError interface {
+type AppError interface {
 	Code() string
 	Kind() ErrorKind
 }
@@ -46,7 +47,7 @@ func (e *Error) Error() string {
 }
 
 func (e *Error) Is(target error) bool {
-	var t DomainError
+	var t AppError
 	if !errors.As(target, &t) {
 		return false
 	}

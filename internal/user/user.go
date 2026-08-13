@@ -1,4 +1,4 @@
-// Package user provides the domain model and business logic for managing users in system.
+// Package user provides the data model and business logic for managing users in system.
 package user
 
 import (
@@ -7,13 +7,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/prawirdani/golang-restapi/internal/domain"
+	"github.com/prawirdani/golang-restapi/internal/apperr"
 	"github.com/prawirdani/golang-restapi/pkg/nullable"
 )
 
 var (
-	ErrEmailConflict = domain.ConflictErr("email already exists", "USER_EMAIL_CONFLICT")
-	ErrValidation    = domain.ValidationErr("invalid user data", "USER_VALIDATION")
+	ErrEmailConflict = apperr.ConflictErr("email already exists", "USER_EMAIL_CONFLICT")
+	ErrValidation    = apperr.ValidationErr("invalid user data", "USER_VALIDATION")
 )
 
 type User struct {

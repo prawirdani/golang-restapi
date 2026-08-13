@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/prawirdani/golang-restapi/internal/domain"
-	"github.com/prawirdani/golang-restapi/internal/domain/user"
-	"github.com/prawirdani/golang-restapi/internal/domain/user/mocks"
+	"github.com/prawirdani/golang-restapi/internal/apperr"
+	"github.com/prawirdani/golang-restapi/internal/user"
+	"github.com/prawirdani/golang-restapi/internal/user/mocks"
 	sharedMocks "github.com/prawirdani/golang-restapi/internal/testing/mocks"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 	"github.com/prawirdani/golang-restapi/pkg/nullable"
@@ -212,7 +212,7 @@ func TestService_ChangeProfilePicture(t *testing.T) {
 		f.transactor.EXPECT().
 			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
 			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
-				f.repo.EXPECT().GetByID(ctx, userID).Return(nil, domain.ErrNotFound)
+				f.repo.EXPECT().GetByID(ctx, userID).Return(nil, apperr.ErrNotFound)
 				return fn(ctx)
 			})
 
@@ -223,7 +223,7 @@ func TestService_ChangeProfilePicture(t *testing.T) {
 
 		err := f.service.ChangeProfilePicture(ctx, userID, f.file)
 		assert.Error(t, err)
-		assert.ErrorIs(t, err, domain.ErrNotFound)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("Error storage put fails", func(t *testing.T) {
@@ -318,13 +318,13 @@ func TestService_DeleteProfilePicture(t *testing.T) {
 		f.transactor.EXPECT().
 			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
 			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
-				f.repo.EXPECT().GetByID(ctx, userID).Return(nil, domain.ErrNotFound)
+				f.repo.EXPECT().GetByID(ctx, userID).Return(nil, apperr.ErrNotFound)
 				return fn(ctx)
 			})
 
 		err := f.service.DeleteProfilePicture(ctx, userID)
 		assert.Error(t, err)
-		assert.ErrorIs(t, err, domain.ErrNotFound)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("Error update fails", func(t *testing.T) {

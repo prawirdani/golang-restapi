@@ -11,11 +11,11 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/prawirdani/golang-restapi/internal/domain"
+	"github.com/prawirdani/golang-restapi/internal/apperr"
 	"golang.org/x/crypto/bcrypt"
 )
 
-var ErrWrongCredentials = domain.UnauthorizedErr("check your credentials", "AUTH_CREDENTIALS")
+var ErrWrongCredentials = apperr.UnauthorizedErr("check your credentials", "AUTH_CREDENTIALS")
 
 // bcryptCost is the work factor used for password hashing.
 const bcryptCost = 12

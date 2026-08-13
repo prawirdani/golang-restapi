@@ -8,8 +8,8 @@ import (
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/prawirdani/golang-restapi/internal/domain"
-	"github.com/prawirdani/golang-restapi/internal/domain/auth"
+	"github.com/prawirdani/golang-restapi/internal/apperr"
+	"github.com/prawirdani/golang-restapi/internal/auth"
 )
 
 type authRepository struct {
@@ -109,7 +109,7 @@ func (r *authRepository) GetSessionByID(
 	var sess auth.Session
 	if err := pgxscan.Get(ctx, conn, &sess, query, sessionID); err != nil {
 		if noRowsErr(err) {
-			return nil, domain.ErrNotFound
+			return nil, apperr.ErrNotFound
 		}
 
 		return nil, fmt.Errorf("session by id: %w", err)
@@ -132,7 +132,7 @@ func (r *authRepository) GetSessionByRefreshTokenHash(
 	var session auth.Session
 	if err := pgxscan.Get(ctx, conn, &session, query, tokenHash); err != nil {
 		if noRowsErr(err) {
-			return nil, domain.ErrNotFound
+			return nil, apperr.ErrNotFound
 		}
 		return nil, fmt.Errorf("session by refresh_token token hash: %w", err)
 	}
@@ -155,7 +155,7 @@ func (r *authRepository) GetPasswordRecoveryToken(
 	var token auth.PasswordRecoveryToken
 	if err := pgxscan.Get(ctx, conn, &token, query, tokenHash); err != nil {
 		if noRowsErr(err) {
-			return nil, domain.ErrNotFound
+			return nil, apperr.ErrNotFound
 		}
 		return nil, fmt.Errorf("get password recovery token: %w", err)
 	}
