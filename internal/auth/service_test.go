@@ -14,9 +14,9 @@ import (
 	"github.com/prawirdani/golang-restapi/internal/apperr"
 	"github.com/prawirdani/golang-restapi/internal/auth"
 	"github.com/prawirdani/golang-restapi/internal/auth/mocks"
-	"github.com/prawirdani/golang-restapi/internal/user"
 	sharedMocks "github.com/prawirdani/golang-restapi/internal/testing/mocks"
 	"github.com/prawirdani/golang-restapi/internal/throttle"
+	"github.com/prawirdani/golang-restapi/internal/user"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 
@@ -254,7 +254,7 @@ func TestService_RecoverPassword(t *testing.T) {
 			TryAcquire(ctx, "recover-password:"+input.Email, auth.PasswordRecoveryThrottledTTL).
 			Return(throttle.Result{Allowed: true}, nil)
 
-		// Token persistence happens inside the transaction; the mailer is enqueued
+		// Token persistence happens inside the transaction; the event is enqueued
 		// AFTER the transaction commits (outside the closure).
 		f.transactor.EXPECT().
 			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
@@ -269,8 +269,8 @@ func TestService_RecoverPassword(t *testing.T) {
 				return fn(ctx)
 			})
 
-		f.mailer.EXPECT().
-			PasswordRecovery(ctx, mock.AnythingOfType("auth.PasswordRecoveryMessage")).
+		f.eventProducer.EXPECT().
+			ProducePasswordRecoveryEvent(ctx, mock.AnythingOfType("auth.PasswordRecoveryMessage")).
 			Return(nil)
 
 		result, err := f.service.RecoverPassword(ctx, input)
@@ -278,7 +278,7 @@ func TestService_RecoverPassword(t *testing.T) {
 		require.True(t, result.Allowed)
 	})
 
-	t.Run("Mailer enqueue fails after commit", func(t *testing.T) {
+	t.Run("Event enqueue fails after commit", func(t *testing.T) {
 		ctx := context.Background()
 		f := setupTestFixture(t)
 
@@ -304,8 +304,8 @@ func TestService_RecoverPassword(t *testing.T) {
 				return fn(ctx)
 			})
 
-		f.mailer.EXPECT().
-			PasswordRecovery(ctx, mock.AnythingOfType("auth.PasswordRecoveryMessage")).
+		f.eventProducer.EXPECT().
+			ProducePasswordRecoveryEvent(ctx, mock.AnythingOfType("auth.PasswordRecoveryMessage")).
 			Return(assert.AnError)
 
 		f.throttler.EXPECT().
@@ -316,7 +316,7 @@ func TestService_RecoverPassword(t *testing.T) {
 		assert.ErrorIs(t, err, assert.AnError)
 	})
 
-	t.Run("Store token fails: mailer never called", func(t *testing.T) {
+	t.Run("Store token fails: event producer never called", func(t *testing.T) {
 		ctx := context.Background()
 		f := setupTestFixture(t)
 
@@ -342,7 +342,7 @@ func TestService_RecoverPassword(t *testing.T) {
 				return fn(ctx)
 			})
 
-		// No mailer expectation: if RecoverPassword enqueued despite the tx failing,
+		// No event producer expectation: if RecoverPassword enqueued despite the tx failing,
 		// the mock (constructed with t) would fail on an unexpected call.
 		f.throttler.EXPECT().
 			TryAcquire(ctx, "recover-password:"+input.Email, auth.PasswordRecoveryThrottledTTL).
@@ -685,7 +685,7 @@ func TestGenerateOpaqueToken_WithPrefix(t *testing.T) {
 func TestVerifyAccessToken_InvalidSignature(t *testing.T) {
 	userID := uuid.New()
 	sessID := uuid.New()
-	token, err := auth.SignAccessToken("correct-secret", time.Hour, userID, sessID, auth.RoleSystem)
+	token, err := auth.SignAccessToken("correct-secret", time.Hour, userID, sessID)
 	require.NoError(t, err)
 
 	_, err = auth.VerifyAccessToken("wrong-secret", token)
@@ -693,13 +693,13 @@ func TestVerifyAccessToken_InvalidSignature(t *testing.T) {
 }
 
 type testFixture struct {
-	transactor *sharedMocks.Transactor
-	userRepo   *mocks.UserRepository
-	authRepo   *mocks.Repository
-	mailer     *mocks.Mailer
-	throttler  *sharedMocks.Throttler
-	service    *auth.Service
-	cfg        config.Auth
+	transactor    *sharedMocks.Transactor
+	userRepo      *mocks.UserRepository
+	authRepo      *mocks.Repository
+	eventProducer *mocks.EventProducer
+	throttler     *sharedMocks.Throttler
+	service       *auth.Service
+	cfg           config.Auth
 }
 
 func setupTestFixture(t *testing.T) *testFixture {
@@ -712,26 +712,26 @@ func setupTestFixture(t *testing.T) *testFixture {
 	tr := sharedMocks.NewTransactor(t)
 	userRepo := mocks.NewUserRepository(t)
 	authRepo := mocks.NewRepository(t)
-	mailer := mocks.NewMailer(t)
+	eventProducer := mocks.NewEventProducer(t)
 	throttler := sharedMocks.NewThrottler(t)
 
-	service := auth.NewService(cfg, tr, userRepo, authRepo, mailer, throttler)
+	service := auth.NewService(cfg, tr, userRepo, authRepo, eventProducer, throttler)
 
 	t.Cleanup(func() {
 		tr.AssertExpectations(t)
 		userRepo.AssertExpectations(t)
 		authRepo.AssertExpectations(t)
-		mailer.AssertExpectations(t)
+		eventProducer.AssertExpectations(t)
 		throttler.AssertExpectations(t)
 	})
 
 	return &testFixture{
-		cfg:        cfg,
-		transactor: tr,
-		userRepo:   userRepo,
-		authRepo:   authRepo,
-		mailer:     mailer,
-		throttler:  throttler,
-		service:    service,
+		cfg:           cfg,
+		transactor:    tr,
+		userRepo:      userRepo,
+		authRepo:      authRepo,
+		eventProducer: eventProducer,
+		throttler:     throttler,
+		service:       service,
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func produce[T any](ctx context.Context, rdb *redis.Client, stream string, env messaging.Envelope[T]) error {
+func produceStream[T any](ctx context.Context, rdb *redis.Client, stream string, env messaging.Envelope[T]) error {
 	b, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Errorf("marshal envelope: %w", err)

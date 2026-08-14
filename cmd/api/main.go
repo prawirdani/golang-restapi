@@ -11,7 +11,7 @@ import (
 	stdlog "log"
 
 	"github.com/prawirdani/golang-restapi/config"
-	"github.com/prawirdani/golang-restapi/internal/infrastructure/repository/postgres"
+	"github.com/prawirdani/golang-restapi/internal/infrastructure/postgres"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 	"github.com/redis/go-redis/v9"
 )

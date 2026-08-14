@@ -16,20 +16,19 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(m
 ## Rules
 
 1. **Layering is strict.** Dependencies flow one way:
-   - `internal/domain/<entity>/` — models, service interfaces, service implementations, errors. ZERO infrastructure imports (no pgx, no redis, no chi).
+   - `internal/<entity>/` — models, service interfaces, service implementations, errors. ZERO infrastructure imports (no pgx, no redis, no chi).
    - `internal/infrastructure/` — implementations (postgres repos, r2 storage, redis messaging/throttle). May import domain, never the reverse.
    - `internal/transport/http/` — handlers, middleware, context helpers. May import domain and pkg/, never infrastructure directly.
    - `pkg/` — framework-agnostic helpers (log, mailer, metrics, nullable, strings, validator).
    - `cmd/api` + `cmd/worker` — composition roots only.
 
-2. **Interfaces live next to their consumers in `domain/`.** `internal/domain/<entity>/repository.go` defines `Repository`; the service struct depends on the interface, not the concrete type (see `internal/domain/auth/service.go:23-30`).
+2. **Interfaces live next to their consumers in `internal/<entity>/`.** `internal/<entity>/repository.go` defines `Repository`; the service struct depends on the interface, not the concrete type (see `internal/auth/service.go:23-30`).
 
 3. **DI is manual and explicit** in `cmd/api/container.go`. One constructor per dependency, services composed top-down, mocks not allowed in production wiring. `NewContainer` receives only `cfg`, `pg *postgres.DB`, `rdb *redis.Client` and builds everything else.
 
 4. **Import aliases are fixed** — never import these packages unaliased or with a different alias:
    - `httpx "github.com/prawirdani/golang-restapi/internal/transport/http"`
-   - `redisstream "github.com/prawirdani/golang-restapi/internal/infrastructure/messaging/redis"`
-   - `rd "github.com/prawirdani/golang-restapi/internal/infrastructure/redis"`
+   - `redisInfra "github.com/prawirdani/golang-restapi/internal/infrastructure/redis"`
    - `strs "github.com/prawirdani/golang-restapi/pkg/strings"`
    - `sharedMocks "github.com/prawirdani/golang-restapi/internal/testing/mocks"`
 
@@ -43,7 +42,7 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(m
 
 ## Checklist (Review mode)
 
-- [ ] No infrastructure import in any `internal/domain/` file
+- [ ] No infrastructure import in any entity package under `internal/` (e.g. `internal/auth`, `internal/user`)
 - [ ] No handler/service reaching into infrastructure directly (transactor, storage, redis injected as interfaces)
 - [ ] New interface documented and placed in domain, implemented in infrastructure
 - [ ] Mocks regenerated via `mockery` (see `.mockery.yml`) after interface changes
@@ -56,5 +55,5 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(m
 - `AGENTS.md` (Layout, Architecture, Conventions)
 - `cmd/api/container.go` — manual DI composition
 - `cmd/api/server.go` — route registration + middleware chain
-- `internal/domain/auth/service.go` — service depending on interfaces
+- `internal/auth/service.go` — service depending on interfaces
 - `.mockery.yml` — where mocks are generated and where they land

@@ -1,6 +1,6 @@
 ---
 name: gorest-services
-description: "Service-layer conventions for github.com/prawirdani/golang-restapi — interface-driven dependencies, Transact for multi-step writes, nullable mutation + Validate, post-commit side effects (email, storage cleanup), async goroutines with snapshotted logger context, and throttling. Use when writing or reviewing business logic in internal/domain/."
+description: "Service-layer conventions for github.com/prawirdani/golang-restapi — interface-driven dependencies, Transact for multi-step writes, nullable mutation + Validate, post-commit side effects (email, storage cleanup), async goroutines with snapshotted logger context, and throttling. Use when writing or reviewing business logic in internal/ entity packages."
 user-invocable: true
 license: MIT
 compatibility: Designed for AI coding agents working in the golang-restapi repository.
@@ -17,7 +17,7 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
 
 1. **Dependencies are interfaces from the domain layer** (`repository.Transactor`, `user.Repository`, `storage.Storage`, `throttle.Throttler`, `Mailer`), injected via `NewService`. Services never import `postgres`, `redis`, or `r2` packages — the concrete types arrive via the interface.
 
-2. **Multi-step writes wrap in `s.transactor.Transact(ctx, func(ctx) error {...})`.** Repositories join the tx automatically through `db.GetConn(ctx)` — no explicit begin/commit. Example: `internal/domain/auth/service.go:120`.
+2. **Multi-step writes wrap in `s.transactor.Transact(ctx, func(ctx) error {...})`.** Repositories join the tx automatically through `db.GetConn(ctx)` — no explicit begin/commit. Example: `internal/auth/service.go:120`.
 
 3. **Side effects that must survive rollback happen AFTER commit, outside the closure.** The mailer is invoked after `Transact` returns nil (`auth/service.go:209-218`); storage cleanup after the DB swap succeeds (`user/service.go:110-113`).
 
@@ -57,8 +57,8 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
 
 ## References
 
-- `internal/domain/auth/service.go` — Transact, throttling, post-commit mailer
-- `internal/domain/user/service.go` — validation, storage swap + async cleanup
-- `internal/domain/user/model.go` / `gender.go` — nullable + Validate patterns
+- `internal/auth/service.go` — Transact, throttling, post-commit mailer
+- `internal/user/service.go` — validation, storage swap + async cleanup
+- `internal/user/model.go` / `gender.go` — nullable + Validate patterns
 - `internal/throttle/throttle.go` — Throttler contract
 - `pkg/log/context.go` — logger snapshots (`log.GetFromContext`)

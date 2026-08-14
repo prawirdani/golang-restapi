@@ -53,14 +53,10 @@ type Repository interface {
 
 type UserRepository user.Repository
 
-// Mailer defines the contract for sending email notifications.
+// EventProducer defines the contract for publishing notification events.
 //
-// Implementations can either send emails directly (e.g. SMTP, SendGrid)
-// or publish to a message queue for async processing (e.g. Redis Streams, Kafka).
-//
-// Prefer the event-based approach — it decouples the caller from email
-// delivery, improves resilience with built-in retry/DLQ, and keeps
-// request latency unaffected by slow or failing mail servers.
-type Mailer interface {
-	PasswordRecovery(ctx context.Context, msg PasswordRecoveryMessage) error
+// Implementations are responsible only for publishing the event.
+// Email delivery is handled asynchronously by downstream consumers.
+type EventProducer interface {
+	ProducePasswordRecoveryEvent(ctx context.Context, msg PasswordRecoveryMessage) error
 }

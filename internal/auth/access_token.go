@@ -29,7 +29,6 @@ var (
 // RegisteredClaims contains standard JWT fields like exp, iat, and iss.
 type AccessTokenClaims struct {
 	UserID    uuid.UUID `json:"-"`
-	Role      Role      `json:"role"`
 	SessionID uuid.UUID `json:"sid"`
 	jwt.RegisteredClaims
 }
@@ -40,12 +39,10 @@ func SignAccessToken(
 	ttl time.Duration,
 	userID uuid.UUID,
 	sessID uuid.UUID,
-	role Role,
 ) (string, error) {
 	now := time.Now()
 
 	claims := AccessTokenClaims{
-		Role:      role,
 		SessionID: sessID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),

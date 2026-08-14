@@ -13,7 +13,7 @@ template: testify
 template-schema: "{{.Template}}.schema.json"
 inpackage: false
 packages:
-  github.com/prawirdani/golang-restapi/internal/infrastructure/repository:
+  github.com/prawirdani/golang-restapi/internal/repository:
     interfaces:
       Transactor:
         config:
@@ -46,11 +46,11 @@ packages:
           dir: "./internal/auth/mocks"
           structname: "{{.InterfaceName}}"
           filename: user_repository.go
-      Mailer:
+      EventProducer:
         config:
           dir: "./internal/auth/mocks"
           structname: "{{.InterfaceName}}"
-          filename: mailer.go
+          filename: event_producer.go
 
   github.com/prawirdani/golang-restapi/internal/user:
     interfaces:

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/prawirdani/golang-restapi/internal/infrastructure/repository"
+	"github.com/prawirdani/golang-restapi/internal/repository"
 	"github.com/prawirdani/golang-restapi/internal/storage"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )

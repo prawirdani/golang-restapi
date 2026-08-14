@@ -1,6 +1,6 @@
 ---
 name: gorest-errors
-description: "Error handling rules for github.com/prawirdani/golang-restapi — domain.Error constructors and ErrorKind, immutable WithDetails/SetMessage copies, errors.Is semantics (kind+code), repository error translation (unique violation / no rows), and HTTP error normalization. Use when creating errors, mapping database errors, or reviewing how errors surface to clients."
+description: "Error handling rules for github.com/prawirdani/golang-restapi — apperr.Error constructors and Kind, immutable WithDetails/SetMessage copies, errors.Is semantics (kind+code), repository error translation (unique violation / no rows), and HTTP error normalization. Use when creating errors, mapping database errors, or reviewing how errors surface to clients."
 user-invocable: true
 license: MIT
 compatibility: Designed for AI coding agents working in the golang-restapi repository.
@@ -17,14 +17,14 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
 
 1. **Domain errors are built from constructors**, never struct literals:
    ```go
-   var ErrPasswordRecoveryThrottled = domain.ThrottledErr(
+   var ErrPasswordRecoveryThrottled = apperr.ThrottledErr(
        "too many password reset requests, please try again later",
        "AUTH_RECOVERY_THROTTLED",
    )
    ```
-   Available: `domain.UnauthorizedErr`, `domain.ConflictErr`, `domain.ForbiddenErr`, `domain.ValidationErr`, `domain.ThrottledErr`, and `domain.ErrNotFound` (already constructed). Codes are UPPER_SNAKE, prefixed with the entity (`AUTH_`, `USER_`...).
+   Available: `apperr.UnauthorizedErr`, `apperr.ConflictErr`, `apperr.ForbiddenErr`, `apperr.ValidationErr`, `apperr.ThrottledErr`, and `apperr.ErrNotFound` (already constructed). Codes are UPPER_SNAKE, prefixed with the entity (`AUTH_`, `USER_`...).
 
-2. **Errors are immutable.** `WithDetails(details any)` and `SetMessage(message string)` return copies; never mutate a shared sentinel. The copy stays comparable via `errors.Is` (matches on kind + code, see `internal/domain/error.go:48-54`).
+2. **Errors are immutable.** `WithDetails(details any)` and `SetMessage(message string)` return copies; never mutate a shared sentinel. The copy stays comparable via `errors.Is` (matches on kind + code, see `internal/apperr/error.go`).
 
 3. **Repositories translate, they don't invent.** Map postgres failures to domain errors; wrap everything else:
    ```go
@@ -32,11 +32,11 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
        return user.ErrEmailConflict.WithDetails(map[string]any{"email": u.Email})
    }
    if noRowsErr(err) {
-       return domain.ErrNotFound.WithDetails(map[string]any{"user_" + field: value})
+       return apperr.ErrNotFound.WithDetails(map[string]any{"user_" + field: value})
    }
    return fmt.Errorf("store user: %w", err)
    ```
-   Use `uniqueViolationErr(err, constraintName)` (pg error code 23505) and `noRowsErr(err)` from `internal/infrastructure/repository/postgres/common.go`.
+   Use `uniqueViolationErr(err, constraintName)` (pg error code 23505) and `noRowsErr(err)` from `internal/infrastructure/postgres/common.go`.
 
 4. **Wrap internal errors with operation context** using `fmt.Errorf("op name: %w", err)` — lowercase op, no trailing punctuation. Sentinel `errors.New("... is nil")` is allowed only for nil-receiver guards at the top of repo methods.
 
@@ -50,13 +50,13 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
 - [ ] Sentinel errors never mutated in place (`WithDetails`/`SetMessage` copies used)
 - [ ] `errors.Is` assertions in tests target the sentinel, not the copy
 - [ ] Repo: unique/no-rows mapped via helpers; other errors wrapped with context
-- [ ] ErrorKind used instead of inventing new status mapping
+- [ ] Kind used instead of inventing new status mapping
 - [ ] Message strings lowercase, no trailing punctuation, user-safe (no internals leaked)
 
 ## References
 
-- `internal/domain/error.go` — Error, ErrorKind, constructors, Is semantics
-- `internal/domain/auth/password_recovery_token.go` — sentinel definitions
-- `internal/infrastructure/repository/postgres/user_repository.go:45-52` — translation pattern
-- `internal/infrastructure/repository/postgres/common.go` — `uniqueViolationErr`, `noRowsErr`
+- `internal/apperr/error.go` — Error, constructors, Is semantics; `internal/apperr/kind.go` — Kind + Kind* constants
+- `internal/auth/password_recovery_token.go` — sentinel definitions
+- `internal/infrastructure/postgres/user_repository.go:45-52` — translation pattern
+- `internal/infrastructure/postgres/common.go` — `uniqueViolationErr`, `noRowsErr`
 - `internal/transport/http/error.go` — NormalizeError, kind→status map

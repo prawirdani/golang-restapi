@@ -14,7 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type ConsumerConfig struct {
+type ConsumerStreamConfig struct {
 	Stream      string
 	Group       string
 	Consumer    string
@@ -43,11 +43,11 @@ type Consumer interface {
 
 type StreamConsumer[T any] struct {
 	rdb     *redis.Client
-	cfg     ConsumerConfig
+	cfg     ConsumerStreamConfig
 	handler messaging.Handler[T]
 }
 
-func NewStreamConsumer[T any](rdb *redis.Client, cfg ConsumerConfig, h messaging.Handler[T]) *StreamConsumer[T] {
+func NewStreamConsumer[T any](rdb *redis.Client, cfg ConsumerStreamConfig, h messaging.Handler[T]) *StreamConsumer[T] {
 	return &StreamConsumer[T]{rdb: rdb, cfg: cfg, handler: h}
 }
 

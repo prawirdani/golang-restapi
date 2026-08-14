@@ -1,6 +1,6 @@
 ---
 name: gorest-testing
-description: "Unit testing conventions for github.com/prawirdani/golang-restapi — mockery regeneration and placement, setupTestFixture pattern, mock.AssertExpectations cleanup, transactor mock expectations inside RunAndReturn, table-driven subtests, and assertion style (assert vs require). Use when writing or reviewing unit tests in internal/domain/ or internal/transport/http/."
+description: "Unit testing conventions for github.com/prawirdani/golang-restapi — mockery regeneration and placement, setupTestFixture pattern, mock.AssertExpectations cleanup, transactor mock expectations inside RunAndReturn, table-driven subtests, and assertion style (assert vs require). Use when writing or reviewing unit tests in internal/ (entity packages) or internal/transport/http/."
 user-invocable: true
 license: MIT
 compatibility: Designed for AI coding agents working in the golang-restapi repository.
@@ -16,11 +16,11 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(m
 ## Rules
 
 1. **Mocks come from mockery only** (`.mockery.yml`):
-   - Entity-scoped: `internal/domain/<entity>/mocks/` (e.g. `auth/mocks.Repository`, `user/mocks.UserRepository`).
+   - Entity-scoped: `internal/<entity>/mocks/` (e.g. `auth/mocks.Repository`, `user/mocks.UserRepository`).
    - Shared infrastructure: `internal/testing/mocks/` (`Transactor`, `Storage`, `File`, `Throttler`).
    - After adding/changing an interface, run `mockery` and commit the regenerated files. Never hand-write mock implementations.
 
-2. **Fixture pattern is fixed** (see `internal/domain/auth/service_test.go:650`):
+2. **Fixture pattern is fixed** (see `internal/auth/service_test.go:650`):
    ```go
    type testFixture struct {
        transactor *sharedMocks.Transactor
@@ -77,7 +77,7 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(m
 
 ## References
 
-- `internal/domain/auth/service_test.go` — canonical fixture + transactor pattern
-- `internal/domain/user/service_test.go` — second example
+- `internal/auth/service_test.go` — canonical fixture + transactor pattern
+- `internal/user/service_test.go` — second example
 - `.mockery.yml` — mock placement and regeneration config
 - `internal/testing/mocks/` — shared infrastructure mocks

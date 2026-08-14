@@ -1,3 +1,5 @@
+// Package repository defines cross-cutting persistence port interfaces shared
+// by services and infrastructure, such as the Transactor for atomic multi-repository writes.
 package repository
 
 import "context"

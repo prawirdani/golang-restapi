@@ -7,27 +7,16 @@ import (
 	"fmt"
 )
 
-type ErrorKind uint8
-
-const (
-	KindValidation ErrorKind = iota
-	KindNotFound
-	KindUnauthorized
-	KindConflict
-	KindForbidden
-	KindThrottled
-)
-
 type AppError interface {
 	Code() string
-	Kind() ErrorKind
+	Kind() Kind
 }
 
 type Error struct {
 	Message string
 	Details any
 	code    string
-	kind    ErrorKind
+	kind    Kind
 }
 
 func (e *Error) Error() string {
@@ -58,7 +47,7 @@ func (e *Error) Code() string {
 	return e.code
 }
 
-func (e *Error) Kind() ErrorKind {
+func (e *Error) Kind() Kind {
 	return e.kind
 }
 
@@ -91,7 +80,7 @@ var (
 
 var ErrNotFound = constructErr(KindNotFound, "RESOURCE_NOT_FOUND")("the requested resource was not found")
 
-func constructErr(kind ErrorKind, defaultCode string) func(message string, code ...string) *Error {
+func constructErr(kind Kind, defaultCode string) func(message string, code ...string) *Error {
 	return func(msg string, code ...string) *Error {
 		errCode := defaultCode
 		if len(code) > 0 && code[0] != "" {

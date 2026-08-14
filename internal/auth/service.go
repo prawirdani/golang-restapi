@@ -14,19 +14,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/config"
 	"github.com/prawirdani/golang-restapi/internal/apperr"
-	"github.com/prawirdani/golang-restapi/internal/user"
-	"github.com/prawirdani/golang-restapi/internal/infrastructure/repository"
+	"github.com/prawirdani/golang-restapi/internal/repository"
 	"github.com/prawirdani/golang-restapi/internal/throttle"
+	"github.com/prawirdani/golang-restapi/internal/user"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 
 type Service struct {
-	cfg        config.Auth
-	transactor repository.Transactor
-	authRepo   Repository
-	userRepo   UserRepository
-	mailer     Mailer
-	throttler  throttle.Throttler
+	cfg           config.Auth
+	transactor    repository.Transactor
+	authRepo      Repository
+	userRepo      UserRepository
+	eventProducer EventProducer
+	throttler     throttle.Throttler
 }
 
 func NewService(
@@ -34,16 +34,16 @@ func NewService(
 	transactor repository.Transactor,
 	userRepo UserRepository,
 	authRepo Repository,
-	emailProducer Mailer,
+	eventProducer EventProducer,
 	throttler throttle.Throttler,
 ) *Service {
 	return &Service{
-		cfg:        cfg,
-		transactor: transactor,
-		userRepo:   userRepo,
-		authRepo:   authRepo,
-		mailer:     emailProducer,
-		throttler:  throttler,
+		cfg:           cfg,
+		transactor:    transactor,
+		userRepo:      userRepo,
+		authRepo:      authRepo,
+		eventProducer: eventProducer,
+		throttler:     throttler,
 	}
 }
 
@@ -233,7 +233,7 @@ func (s *Service) RecoverPassword(ctx context.Context, inp RecoverPasswordInput)
 		return th, err
 	}
 
-	if err := s.mailer.PasswordRecovery(ctx, msg); err != nil {
+	if err := s.eventProducer.ProducePasswordRecoveryEvent(ctx, msg); err != nil {
 		log.ErrorCtx(ctx, "Failed to enqueue password recovery email", err)
 		return th, err
 	}
@@ -323,5 +323,5 @@ func (s *Service) ChangePassword(
 }
 
 func (s *Service) generateAccessToken(userID, sessID uuid.UUID) (string, error) {
-	return SignAccessToken(s.cfg.JwtSecret, s.cfg.JwtTTL, userID, sessID, RoleAdmin)
+	return SignAccessToken(s.cfg.JwtSecret, s.cfg.JwtTTL, userID, sessID)
 }

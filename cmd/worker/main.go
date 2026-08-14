@@ -4,17 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	stdlog "log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/prawirdani/golang-restapi/config"
+	redisInfra "github.com/prawirdani/golang-restapi/internal/infrastructure/redis"
 	"github.com/prawirdani/golang-restapi/internal/worker"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 	"github.com/prawirdani/golang-restapi/pkg/mailer"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/errgroup"
 )
 
 // shutdownTimeout bounds how long main waits for Start to return after cancel
@@ -22,61 +23,134 @@ import (
 const shutdownTimeout = 10 * time.Second
 
 func main() {
+	if err := run(); err != nil {
+		log.Error("Application stopped", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		stdlog.Fatal("Failed to load config", err)
+		return fmt.Errorf("load config: %w", err)
 	}
+
 	log.SetLogger(log.NewZerologAdapter(cfg.IsProduction()))
 
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%v", cfg.Redis.Host, cfg.Redis.Port),
+		Addr:     fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
 		Password: cfg.Redis.Password,
-		DB:       0, // use default DB
+		DB:       0,
 	})
 	defer rdb.Close()
 
-	mailer := mailer.New(cfg.SMTP)
-	emailEventConsumer := worker.NewEmailEventConsumer(mailer).Handler(rdb)
+	// Verify Redis connectivity before starting consumers.
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("connect to redis: %w", err)
+	}
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-quit
-		cancel()
-	}()
+	// Dependencies.
+	m := mailer.New(cfg.SMTP)
+	authWorker := worker.NewAuthWorker(m)
 
-	// Run the consumer and surface its exit. Start blocks until ctx is cancelled
-	// (returning context.Canceled after draining in-flight handlers) or it hits a
-	// fatal error.
+	authEventConsumers := redisInfra.NewAuthEventConsumers(rdb, authWorker)
+
+	// Register all consumers here.
+	consumers := []redisInfra.Consumer{
+		authEventConsumers.PasswordRecovery,
+		// Add more consumers as the application grows:
+		// authEvents.EmailVerification,
+		// notificationEvents.PushNotification,
+		// billingEvents.Payment,
+	}
+
+	return runConsumers(ctx, consumers)
+}
+
+func runConsumers(
+	ctx context.Context,
+	consumers []redisInfra.Consumer,
+) error {
+	if len(consumers) == 0 {
+		return nil
+	}
+
+	g, ctx := errgroup.WithContext(ctx)
+
+	for _, consumer := range consumers {
+		g.Go(func() error {
+			err := consumer.Start(ctx)
+
+			if err != nil && !errors.Is(err, context.Canceled) {
+				return err
+			}
+
+			return nil
+		})
+	}
+
+	err := waitForShutdown(ctx, g)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func waitForShutdown(
+	ctx context.Context,
+	g *errgroup.Group,
+) error {
 	done := make(chan error, 1)
+
 	go func() {
-		done <- emailEventConsumer.Start(ctx)
+		done <- g.Wait()
 	}()
 
 	select {
+	case err := <-done:
+		// A consumer stopped before shutdown.
+		if err != nil {
+			return fmt.Errorf("consumer stopped: %w", err)
+		}
+
+		return nil
+
 	case <-ctx.Done():
-		// Shutdown requested: wait for Start to return so in-flight emails drain
-		// and deferred cleanup (rdb.Close) runs. Bound the wait — if a handler
-		// is wedged, exit anyway so rdb.Close still runs.
+		log.Info("Shutdown signal received")
+
+		shutdownCtx, cancel := context.WithTimeout(
+			context.Background(),
+			shutdownTimeout,
+		)
+		defer cancel()
+
+		// The errgroup is using the signal context, so all consumers
+		// should receive cancellation and begin graceful shutdown.
 		select {
 		case err := <-done:
 			if err != nil && !errors.Is(err, context.Canceled) {
-				log.Error("Consumer stopped with error during shutdown", err)
+				return fmt.Errorf(
+					"consumer stopped during shutdown: %w",
+					err,
+				)
 			}
-			log.Info("Worker exited gracefully")
-		case <-time.After(shutdownTimeout):
-			log.Warn("Worker shutdown timed out, exiting", "timeout", shutdownTimeout)
+
+			log.Info("All consumers exited gracefully")
+			return nil
+
+		case <-shutdownCtx.Done():
+			return fmt.Errorf(
+				"consumer shutdown timed out after %s",
+				shutdownTimeout,
+			)
 		}
-	case err := <-done:
-		// Consumer returned on its own before a shutdown signal.
-		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Error("Consumer stopped unexpectedly", err)
-			cancel()
-			os.Exit(1)
-		}
-		log.Info("Worker exited gracefully")
 	}
 }

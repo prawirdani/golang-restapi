@@ -131,7 +131,7 @@ func NormalizeError(err error) *Error {
 		maxBytesErr   *http.MaxBytesError
 		jsonBindErr   *JSONBindError
 		validationErr *validator.ValidationError
-		appErr     *apperr.Error
+		appErr        *apperr.Error
 	)
 
 	switch {
@@ -219,7 +219,7 @@ func IsMissingFileError(err error) bool {
 	return false
 }
 
-var appErrStatusMap = map[apperr.ErrorKind]int{
+var appErrStatusMap = map[apperr.Kind]int{
 	apperr.KindNotFound:     http.StatusNotFound,
 	apperr.KindValidation:   http.StatusUnprocessableEntity,
 	apperr.KindConflict:     http.StatusConflict,
@@ -228,7 +228,7 @@ var appErrStatusMap = map[apperr.ErrorKind]int{
 	apperr.KindThrottled:    http.StatusTooManyRequests,
 }
 
-func appErrStatusCode(kind apperr.ErrorKind) int {
+func appErrStatusCode(kind apperr.Kind) int {
 	if status, ok := appErrStatusMap[kind]; ok {
 		return status
 	}

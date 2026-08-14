@@ -1,6 +1,6 @@
 ---
 name: gorest-repositories
-description: "PostgreSQL repository conventions for github.com/prawirdani/golang-restapi — pgx.NamedArgs + generateInsertQuery/generateUpdateQuery builders, pgxscan scanning, transaction-aware connections (db.GetConn/IsTxConn + FOR UPDATE), error translation with uniqueViolationErr/noRowsErr, and method-level docs. Use when writing or reviewing any postgres repository in internal/infrastructure/repository/postgres/."
+description: "PostgreSQL repository conventions for github.com/prawirdani/golang-restapi — pgx.NamedArgs + generateInsertQuery/generateUpdateQuery builders, pgxscan scanning, transaction-aware connections (db.GetConn/IsTxConn + FOR UPDATE), error translation with uniqueViolationErr/noRowsErr, and method-level docs. Use when writing or reviewing any postgres repository in internal/infrastructure/postgres/."
 user-invocable: true
 license: MIT
 compatibility: Designed for AI coding agents working in the golang-restapi repository.
@@ -43,7 +43,7 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
    ```
    Never call `conn.Begin` inside a repository.
 
-5. **Error translation via helpers** (`common.go`): `uniqueViolationErr(err, constraint)` → domain conflict error with details; `noRowsErr(err)` → `domain.ErrNotFound` (optionally with details); anything else → `fmt.Errorf("short op: %w", err)`.
+5. **Error translation via helpers** (`common.go`): `uniqueViolationErr(err, constraint)` → domain conflict error with details; `noRowsErr(err)` → `apperr.ErrNotFound` (optionally with details); anything else → `fmt.Errorf("short op: %w", err)`.
 
 6. **Never return raw `sql.ErrNoRows`/`pgx.ErrNoRows`** to callers; always normalize to domain errors. Never log inside repositories — return the error instead.
 
@@ -58,7 +58,7 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
 
 ## References
 
-- `internal/infrastructure/repository/postgres/common.go` — query builders + error helpers
-- `internal/infrastructure/repository/postgres/user_repository.go` — canonical insert/update/select/delete
-- `internal/infrastructure/repository/postgres/auth_repository.go` — session/token repos with FOR UPDATE
-- `internal/infrastructure/repository/postgres/postgres.go` — `DB.GetConn`/`IsTxConn`
+- `internal/infrastructure/postgres/common.go` — query builders + error helpers
+- `internal/infrastructure/postgres/user_repository.go` — canonical insert/update/select/delete
+- `internal/infrastructure/postgres/auth_repository.go` — session/token repos with FOR UPDATE
+- `internal/infrastructure/postgres/postgres.go` — `DB.GetConn`/`IsTxConn`

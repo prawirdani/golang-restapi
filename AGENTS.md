@@ -33,11 +33,13 @@ config/                  # Env-based config (App, Postgres, Redis, Auth, CORS, S
 internal/
   auth/                  # Auth business logic — JWT, sessions, password recovery, crypto
   user/                  # User business logic — CRUD, profile picture
-  apperr/                # Application error kernel: typed errors, kinds, translation helpers
+  apperr/                # Application error kernel: Error, Kind, constructors, translation helpers
+  messaging/             # Messaging ports (envelope, handler)
+  storage/               # Storage port (file, storage)
   infrastructure/
-    repository/postgres/ # pgx repository implementations
-    storage/r2/          # R2 storage
-    messaging/redis/     # Redis Streams producer/consumer
+    postgres/            # pgx repository implementations
+    r2/                  # R2 storage
+    redis/               # Redis Streams producer/consumer
   transport/http/        # context.go (Context, Handler, error normalization), handler/, middleware/
   worker/                # Email event consumer (Redis -> SMTP)
 pkg/                     # log, mailer, metrics, nullable, strings, validator
@@ -57,7 +59,7 @@ migrations/              # Goose SQL migrations
 - Packages: short, lowercase, single-word (`auth`, `postgres`, `middleware`)
 - Files: snake_case (`user_repository.go`, `service_test.go`)
 - Constructors: `New<Name>()`; Errors: `Err` prefix; Constants: PascalCase
-- Import aliases: `httpx` (transport/http), `redisstream` (messaging/redis), `strs` (pkg/strings)
+- Import aliases: `httpx` (transport/http), `redisInfra` (infrastructure/redis), `strs` (pkg/strings)
 - Add package-level godoc to every new package/entity.
 
 **Handlers** — signature `func(c *httpx.Context) error`, wrapped by `httpx.Handler()`. Return errors; never write error responses manually.
@@ -68,7 +70,7 @@ func (h *AuthHandler) Login(c *httpx.Context) error {
 }
 ```
 
-**Errors** — `apperr.Error` with `ErrorKind` (`KindValidation`, `KindNotFound`, `KindConflict`, `KindUnauthorized`, `KindForbidden`). Immutable (`WithDetails`/`SetMessage` return copies), supports `errors.Is`. `httpx.NormalizeError` maps kinds to HTTP status.
+**Errors** — `apperr.Error` with `Kind` (`KindValidation`, `KindNotFound`, `KindConflict`, `KindUnauthorized`, `KindForbidden`). Immutable (`WithDetails`/`SetMessage` return copies), supports `errors.Is`. `httpx.NormalizeError` maps kinds to HTTP status.
 
 **Transactions** — wrap multi-step writes in `s.transactor.Transact`. Repositories detect the tx via `db.GetConn(ctx)` and reuse the connection (adding `FOR UPDATE`). Rollback/commit run on `context.WithoutCancel(ctx)` with a 5s timeout so a cancelled request ctx doesn't destroy the pooled connection.
 
@@ -110,7 +112,7 @@ These supersede generic samber guidance where they overlap.
 ## Adding a Feature
 
 1. Define model + service interface in `internal/<entity>/` (with godoc).
-2. Implement repository in `internal/infrastructure/repository/postgres/`.
+2. Implement repository in `internal/infrastructure/postgres/`.
 3. Add service implementation in `internal/<entity>/`.
 4. Add handler in `internal/transport/http/handler/`.
 5. Wire in `cmd/api/container.go`; register routes in `cmd/api/server.go` (`setupHandlers`).
