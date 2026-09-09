@@ -7,9 +7,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/internal/apperr"
+	"github.com/prawirdani/golang-restapi/internal/rbac"
+	sharedMocks "github.com/prawirdani/golang-restapi/internal/testing/mocks"
 	"github.com/prawirdani/golang-restapi/internal/user"
 	"github.com/prawirdani/golang-restapi/internal/user/mocks"
-	sharedMocks "github.com/prawirdani/golang-restapi/internal/testing/mocks"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 	"github.com/prawirdani/golang-restapi/pkg/nullable"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,14 @@ func init() {
 	log.SetLogger(log.EmptyLog)
 }
 
+// adminCtx returns a context carrying an admin actor so permission checks pass.
+func adminCtx() context.Context {
+	adminID := uuid.New()
+	return rbac.WithContext(context.Background(), rbac.Context{
+		Actor: rbac.Actor{UserID: &adminID, Role: rbac.RoleAdmin},
+	})
+}
+
 func TestNewUserService(t *testing.T) {
 	f := setupTestFixture(t)
 	require.NotNil(t, f.service)
@@ -28,7 +37,7 @@ func TestNewUserService(t *testing.T) {
 
 func TestService_GetUserByID(t *testing.T) {
 	t.Run("Without profile picture", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 
 		userID := uuid.New()
@@ -50,7 +59,7 @@ func TestService_GetUserByID(t *testing.T) {
 	})
 
 	t.Run("With profile picture", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 
 		userID := uuid.New()
@@ -73,7 +82,7 @@ func TestService_GetUserByID(t *testing.T) {
 
 func TestService_GetUserByEmail(t *testing.T) {
 	t.Run("Without profile picture", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 
 		email := "john@example.com"
@@ -95,7 +104,7 @@ func TestService_GetUserByEmail(t *testing.T) {
 	})
 
 	t.Run("With profile picture", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 
 		email := "john@example.com"
@@ -118,7 +127,7 @@ func TestService_GetUserByEmail(t *testing.T) {
 
 func TestService_ChangeProfilePicture(t *testing.T) {
 	t.Run("Success without existing profile picture", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 
 		existingUser := &user.User{
@@ -147,6 +156,7 @@ func TestService_ChangeProfilePicture(t *testing.T) {
 				f.repo.EXPECT().Update(ctx, mock.MatchedBy(func(u *user.User) bool {
 					return u.ID == existingUser.ID && u.ProfilePicture.Get() == "new-image.jpg"
 				})).Return(nil)
+				f.audit.EXPECT().Record(ctx, mock.AnythingOfType("audit.Entry")).Return(nil)
 				return fn(ctx)
 			})
 
@@ -155,7 +165,7 @@ func TestService_ChangeProfilePicture(t *testing.T) {
 	})
 
 	t.Run("Success with existing profile picture", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 
 		existingUser := &user.User{
@@ -184,6 +194,7 @@ func TestService_ChangeProfilePicture(t *testing.T) {
 				f.repo.EXPECT().Update(ctx, mock.MatchedBy(func(u *user.User) bool {
 					return u.ID == existingUser.ID && u.ProfilePicture.Get() == "new-image.jpg"
 				})).Return(nil)
+				f.audit.EXPECT().Record(ctx, mock.AnythingOfType("audit.Entry")).Return(nil)
 				return fn(ctx)
 			})
 
@@ -197,7 +208,7 @@ func TestService_ChangeProfilePicture(t *testing.T) {
 	})
 
 	t.Run("Error user not found", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 		userID := uuid.New()
 
@@ -227,7 +238,7 @@ func TestService_ChangeProfilePicture(t *testing.T) {
 	})
 
 	t.Run("Error storage put fails", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 
 		f.file.EXPECT().SetName(mock.AnythingOfType("string")).Return(nil)
@@ -244,7 +255,7 @@ func TestService_ChangeProfilePicture(t *testing.T) {
 	})
 
 	t.Run("Error file set name fails", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 
 		f.file.EXPECT().SetName(mock.AnythingOfType("string")).Return(fmt.Errorf("file error"))
@@ -257,7 +268,7 @@ func TestService_ChangeProfilePicture(t *testing.T) {
 
 func TestService_DeleteProfilePicture(t *testing.T) {
 	t.Run("Success with existing profile picture", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 
 		existingUser := &user.User{
@@ -275,6 +286,7 @@ func TestService_DeleteProfilePicture(t *testing.T) {
 				f.repo.EXPECT().Update(ctx, mock.MatchedBy(func(u *user.User) bool {
 					return u.ID == existingUser.ID && !u.ProfilePicture.NotNull()
 				})).Return(nil)
+				f.audit.EXPECT().Record(ctx, mock.AnythingOfType("audit.Entry")).Return(nil)
 				return fn(ctx)
 			})
 
@@ -288,7 +300,7 @@ func TestService_DeleteProfilePicture(t *testing.T) {
 	})
 
 	t.Run("Success without profile picture", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 
 		existingUser := &user.User{
@@ -311,7 +323,7 @@ func TestService_DeleteProfilePicture(t *testing.T) {
 	})
 
 	t.Run("Error user not found", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 		userID := uuid.New()
 
@@ -328,7 +340,7 @@ func TestService_DeleteProfilePicture(t *testing.T) {
 	})
 
 	t.Run("Error update fails", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := adminCtx()
 		f := setupTestFixture(t)
 
 		existingUser := &user.User{
@@ -358,6 +370,7 @@ type testFixtures struct {
 	file       *sharedMocks.File
 	storage    *sharedMocks.Storage
 	repo       *mocks.Repository
+	audit      *sharedMocks.Recorder
 	service    *user.Service
 }
 
@@ -366,21 +379,24 @@ func setupTestFixture(t *testing.T) *testFixtures {
 	repo := mocks.NewRepository(t)
 	storage := sharedMocks.NewStorage(t)
 	file := sharedMocks.NewFile(t)
+	auditRec := sharedMocks.NewRecorder(t)
 
 	t.Cleanup(func() {
 		tr.AssertExpectations(t)
 		repo.AssertExpectations(t)
 		storage.AssertExpectations(t)
 		file.AssertExpectations(t)
+		auditRec.AssertExpectations(t)
 	})
 
-	svc := user.NewService(tr, repo, storage)
+	svc := user.NewService(tr, repo, storage, rbac.NewAuthorizer(), auditRec)
 
 	return &testFixtures{
 		transactor: tr,
 		repo:       repo,
 		storage:    storage,
 		file:       file,
+		audit:      auditRec,
 		service:    svc,
 	}
 }

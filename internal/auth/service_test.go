@@ -14,6 +14,7 @@ import (
 	"github.com/prawirdani/golang-restapi/internal/apperr"
 	"github.com/prawirdani/golang-restapi/internal/auth"
 	"github.com/prawirdani/golang-restapi/internal/auth/mocks"
+	"github.com/prawirdani/golang-restapi/internal/rbac"
 	sharedMocks "github.com/prawirdani/golang-restapi/internal/testing/mocks"
 	"github.com/prawirdani/golang-restapi/internal/throttle"
 	"github.com/prawirdani/golang-restapi/internal/user"
@@ -22,6 +23,14 @@ import (
 
 func init() {
 	log.SetLogger(log.EmptyLog)
+}
+
+// actorCtx returns a context carrying a user actor for authz-gated paths.
+func actorCtx() context.Context {
+	uid := uuid.New()
+	return rbac.WithContext(context.Background(), rbac.Context{
+		Actor: rbac.Actor{UserID: &uid, Role: rbac.RoleUser},
+	})
 }
 
 func TestService_Register(t *testing.T) {
@@ -143,7 +152,7 @@ func TestService_Login(t *testing.T) {
 
 func TestService_RefreshAccessToken(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := actorCtx()
 		f := setupTestFixture(t)
 
 		session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", f.cfg.SessionTTL)
@@ -170,7 +179,7 @@ func TestService_RefreshAccessToken(t *testing.T) {
 	})
 
 	t.Run("Session expired", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := actorCtx()
 		f := setupTestFixture(t)
 
 		session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", f.cfg.SessionTTL)
@@ -488,10 +497,12 @@ func TestService_ResetPassword(t *testing.T) {
 
 func TestService_ChangePassword(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		ctx := context.Background()
 		f := setupTestFixture(t)
 
 		userID := uuid.New()
+		ctx := rbac.WithContext(context.Background(), rbac.Context{
+			Actor: rbac.Actor{UserID: &userID, Role: rbac.RoleUser},
+		})
 		oldPassword := "oldpassword123"
 		newPassword := "newpassword123"
 
@@ -525,10 +536,12 @@ func TestService_ChangePassword(t *testing.T) {
 	})
 
 	t.Run("Wrong current password", func(t *testing.T) {
-		ctx := context.Background()
 		f := setupTestFixture(t)
 
 		userID := uuid.New()
+		ctx := rbac.WithContext(context.Background(), rbac.Context{
+			Actor: rbac.Actor{UserID: &userID, Role: rbac.RoleUser},
+		})
 		oldPassword := "oldpassword123"
 		wrongPassword := "wrongpassword"
 
@@ -575,7 +588,7 @@ func TestService_GetPasswordRecoveryToken(t *testing.T) {
 }
 
 func TestService_RefreshAccessToken_SessionRevoked(t *testing.T) {
-	ctx := context.Background()
+	ctx := actorCtx()
 	f := setupTestFixture(t)
 
 	session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", f.cfg.SessionTTL)
@@ -652,10 +665,12 @@ func TestService_ResetPassword_TokenAlreadyUsed(t *testing.T) {
 }
 
 func TestService_ChangePassword_UserNotFound(t *testing.T) {
-	ctx := context.Background()
 	f := setupTestFixture(t)
 
 	userID := uuid.New()
+	ctx := rbac.WithContext(context.Background(), rbac.Context{
+		Actor: rbac.Actor{UserID: &userID, Role: rbac.RoleUser},
+	})
 	input := auth.ChangePasswordInput{
 		Password:    "oldpassword123",
 		NewPassword: "newpassword123",
@@ -685,7 +700,7 @@ func TestGenerateOpaqueToken_WithPrefix(t *testing.T) {
 func TestVerifyAccessToken_InvalidSignature(t *testing.T) {
 	userID := uuid.New()
 	sessID := uuid.New()
-	token, err := auth.SignAccessToken("correct-secret", time.Hour, userID, sessID)
+	token, err := auth.SignAccessToken("correct-secret", time.Hour, userID, sessID, rbac.RoleAdmin)
 	require.NoError(t, err)
 
 	_, err = auth.VerifyAccessToken("wrong-secret", token)
@@ -698,6 +713,7 @@ type testFixture struct {
 	authRepo      *mocks.Repository
 	eventProducer *mocks.EventProducer
 	throttler     *sharedMocks.Throttler
+	audit         *sharedMocks.Recorder
 	service       *auth.Service
 	cfg           config.Auth
 }
@@ -714,8 +730,15 @@ func setupTestFixture(t *testing.T) *testFixture {
 	authRepo := mocks.NewRepository(t)
 	eventProducer := mocks.NewEventProducer(t)
 	throttler := sharedMocks.NewThrottler(t)
+	auditRec := sharedMocks.NewRecorder(t)
 
-	service := auth.NewService(cfg, tr, userRepo, authRepo, eventProducer, throttler)
+	// Audit is a side-effect; most tests don't care. Best-effort paths call it
+	// without a prior expectation, so register a lenient default. Tests that
+	// assert audit behavior can still add a specific (more-recently-registered)
+	// expectation, which testify matches first.
+	auditRec.On("Record", mock.Anything, mock.AnythingOfType("audit.Entry")).Return(nil).Maybe()
+
+	service := auth.NewService(cfg, tr, userRepo, authRepo, rbac.NewAuthorizer(), eventProducer, throttler, auditRec)
 
 	t.Cleanup(func() {
 		tr.AssertExpectations(t)
@@ -723,6 +746,7 @@ func setupTestFixture(t *testing.T) *testFixture {
 		authRepo.AssertExpectations(t)
 		eventProducer.AssertExpectations(t)
 		throttler.AssertExpectations(t)
+		auditRec.AssertExpectations(t)
 	})
 
 	return &testFixture{
@@ -732,6 +756,7 @@ func setupTestFixture(t *testing.T) *testFixture {
 		authRepo:      authRepo,
 		eventProducer: eventProducer,
 		throttler:     throttler,
+		audit:         auditRec,
 		service:       service,
 	}
 }

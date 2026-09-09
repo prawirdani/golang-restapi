@@ -1,11 +1,11 @@
 package auth
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prawirdani/golang-restapi/internal/rbac"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +16,7 @@ func TestSignAccessToken(t *testing.T) {
 	uid := uuid.New()
 	sid := uuid.New()
 
-	token, err := SignAccessToken(secret, time.Minute*5, uid, sid)
+	token, err := SignAccessToken(secret, time.Minute*5, uid, sid, rbac.RoleAdmin)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 }
@@ -24,7 +24,7 @@ func TestSignAccessToken(t *testing.T) {
 func TestVerifyAccessToken(t *testing.T) {
 	uid := uuid.New()
 	sid := uuid.New()
-	token, err := SignAccessToken(secret, time.Minute*5, uid, sid)
+	token, err := SignAccessToken(secret, time.Minute*5, uid, sid, rbac.RoleAdmin)
 	require.NoError(t, err)
 
 	claims, err := VerifyAccessToken(secret, token)
@@ -35,7 +35,7 @@ func TestVerifyAccessToken(t *testing.T) {
 		uid := uuid.New()
 		sid := uuid.New()
 
-		token, err := SignAccessToken(secret, -time.Minute*1, uid, sid)
+		token, err := SignAccessToken(secret, -time.Minute*1, uid, sid, rbac.RoleAdmin)
 		require.NoError(t, err)
 
 		_, err = VerifyAccessToken(secret, token)
@@ -50,20 +50,20 @@ func TestVerifyAccessToken(t *testing.T) {
 	})
 }
 
-func TestAccessTokenContext(t *testing.T) {
-	t.Run("success", func(t *testing.T) {
-		mockClaims := &AccessTokenClaims{}
-
-		ctx := SetAccessTokenCtx(context.Background(), mockClaims)
-		claims, err := GetAccessTokenCtx(ctx)
-		assert.NoError(t, err)
-		assert.Equal(t, claims, claims)
-	})
-
-	t.Run("ctx-not-exist", func(t *testing.T) {
-		claims, err := GetAccessTokenCtx(context.Background())
-		assert.Error(t, err)
-		assert.Nil(t, claims)
-		assert.Equal(t, ErrAccessTokenClaimsNotFound, err)
-	})
-}
+// func TestAccessTokenContext(t *testing.T) {
+// 	t.Run("success", func(t *testing.T) {
+// 		mockClaims := &AccessTokenClaims{}
+//
+// 		ctx := SetAccessTokenCtx(context.Background(), mockClaims)
+// 		claims, err := GetAccessTokenCtx(ctx)
+// 		assert.NoError(t, err)
+// 		assert.Equal(t, claims, claims)
+// 	})
+//
+// 	t.Run("ctx-not-exist", func(t *testing.T) {
+// 		claims, err := GetAccessTokenCtx(context.Background())
+// 		assert.Error(t, err)
+// 		assert.Nil(t, claims)
+// 		assert.Equal(t, ErrAccessTokenClaimsNotFound, err)
+// 	})
+// }

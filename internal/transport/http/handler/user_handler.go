@@ -1,9 +1,9 @@
 package handler
 
 import (
-	"github.com/prawirdani/golang-restapi/internal/auth"
-	"github.com/prawirdani/golang-restapi/internal/user"
+	"github.com/prawirdani/golang-restapi/internal/rbac"
 	httpx "github.com/prawirdani/golang-restapi/internal/transport/http"
+	"github.com/prawirdani/golang-restapi/internal/user"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 
@@ -20,9 +20,9 @@ func NewUserHandler(userService *user.Service) *UserHandler {
 func (h *UserHandler) UpdateUser(c *httpx.Context) error {
 	ctx := c.Context()
 
-	claims, err := auth.GetAccessTokenCtx(ctx)
+	authz, err := rbac.GetContext(ctx)
 	if err != nil {
-		log.ErrorCtx(ctx, "Failed to get access token context", err)
+		log.ErrorCtx(ctx, "Failed to get auth context", err)
 		return err
 	}
 
@@ -31,7 +31,7 @@ func (h *UserHandler) UpdateUser(c *httpx.Context) error {
 		return err
 	}
 
-	if err := h.userService.UpdateUser(ctx, claims.UserID, reqBody); err != nil {
+	if err := h.userService.UpdateUser(ctx, *authz.Actor.UserID, reqBody); err != nil {
 		return err
 	}
 
@@ -71,13 +71,13 @@ func (h *UserHandler) ChangeProfilePicture(c *httpx.Context) error {
 		return err
 	}
 
-	claims, err := auth.GetAccessTokenCtx(ctx)
+	authz, err := rbac.GetContext(ctx)
 	if err != nil {
-		log.ErrorCtx(ctx, "Failed to get access token context", err)
+		log.ErrorCtx(ctx, "Failed to get auth context", err)
 		return err
 	}
 
-	if err := h.userService.ChangeProfilePicture(ctx, claims.UserID, file); err != nil {
+	if err := h.userService.ChangeProfilePicture(ctx, *authz.Actor.UserID, file); err != nil {
 		log.ErrorCtx(ctx, "Failed to change profile picture", err)
 		return err
 	}
@@ -90,12 +90,12 @@ func (h *UserHandler) ChangeProfilePicture(c *httpx.Context) error {
 func (h *UserHandler) DeleteProfilePicture(c *httpx.Context) error {
 	ctx := c.Context()
 
-	claims, err := auth.GetAccessTokenCtx(ctx)
+	authz, err := rbac.GetContext(ctx)
 	if err != nil {
-		log.ErrorCtx(ctx, "Failed to get access token context", err)
+		log.ErrorCtx(ctx, "Failed to get auth context", err)
 		return err
 	}
-	if err := h.userService.DeleteProfilePicture(ctx, claims.UserID); err != nil {
+	if err := h.userService.DeleteProfilePicture(ctx, *authz.Actor.UserID); err != nil {
 		return err
 	}
 

@@ -19,6 +19,12 @@ packages:
         config:
           filename: transactor.go
 
+  github.com/prawirdani/golang-restapi/internal/audit:
+    interfaces:
+      Recorder:
+        config:
+          filename: audit_recorder.go
+
   github.com/prawirdani/golang-restapi/internal/storage:
     interfaces:
       Storage:

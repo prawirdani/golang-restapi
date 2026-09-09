@@ -12,8 +12,9 @@ import (
 	"github.com/prawirdani/golang-restapi/pkg/nullable"
 
 	"github.com/prawirdani/golang-restapi/internal/auth"
-	"github.com/prawirdani/golang-restapi/internal/user"
+	"github.com/prawirdani/golang-restapi/internal/rbac"
 	httpx "github.com/prawirdani/golang-restapi/internal/transport/http"
+	"github.com/prawirdani/golang-restapi/internal/user"
 )
 
 type AuthHandler struct {
@@ -79,12 +80,12 @@ func (h *AuthHandler) Login(c *httpx.Context) error {
 func (h *AuthHandler) GetCurrentUser(c *httpx.Context) error {
 	ctx := c.Context()
 
-	claims, err := auth.GetAccessTokenCtx(ctx)
+	aCtx, err := rbac.GetContext(ctx)
 	if err != nil {
 		return err
 	}
 
-	usr, err := h.userService.GetUserByID(ctx, claims.UserID)
+	usr, err := h.userService.GetUserByID(ctx, *aCtx.Actor.UserID)
 	if err != nil {
 		log.ErrorCtx(ctx, "Failed to get current user", err)
 		return err
@@ -135,9 +136,9 @@ func (h *AuthHandler) RefreshAccessToken(c *httpx.Context) error {
 func (h *AuthHandler) Logout(c *httpx.Context) error {
 	ctx := c.Context()
 
-	authClaims, _ := auth.GetAccessTokenCtx(ctx)
-	if authClaims != nil {
-		if err := h.authService.Logout(ctx, authClaims.SessionID); err != nil {
+	aCtx, _ := rbac.GetContext(ctx)
+	if aCtx != nil {
+		if err := h.authService.Logout(ctx, aCtx.SessionID); err != nil {
 			log.ErrorCtx(ctx, "Failed to logout", err)
 		}
 	}
@@ -219,12 +220,12 @@ func (h *AuthHandler) ChangePassword(c *httpx.Context) error {
 		return err
 	}
 
-	claims, err := auth.GetAccessTokenCtx(ctx)
+	aCtx, err := rbac.GetContext(ctx)
 	if err != nil {
 		return err
 	}
 
-	if err := h.authService.ChangePassword(ctx, claims.UserID, reqBody); err != nil {
+	if err := h.authService.ChangePassword(ctx, *aCtx.Actor.UserID, reqBody); err != nil {
 		log.ErrorCtx(ctx, "Failed to change password", err)
 		return err
 	}

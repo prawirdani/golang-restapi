@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/prawirdani/golang-restapi/internal/rbac"
 	"github.com/prawirdani/golang-restapi/pkg/nullable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -157,6 +158,7 @@ func TestUser_Validate(t *testing.T) {
 				Name:     "John Doe",
 				Email:    "john@example.com",
 				Password: "hashedpassword",
+				Role:     rbac.RoleUser,
 				Gender:   nullable.New(GenderMale, true),
 				Phone:    nullable.New("123456789", true),
 			},
@@ -168,6 +170,7 @@ func TestUser_Validate(t *testing.T) {
 				Name:     "Jane Doe",
 				Email:    "jane@example.com",
 				Password: "hashedpassword",
+				Role:     rbac.RoleUser,
 			},
 			expectError: false,
 		},

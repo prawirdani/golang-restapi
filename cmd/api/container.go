@@ -6,6 +6,7 @@ import (
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/postgres"
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/r2"
 	redisInfra "github.com/prawirdani/golang-restapi/internal/infrastructure/redis"
+	"github.com/prawirdani/golang-restapi/internal/rbac"
 	"github.com/prawirdani/golang-restapi/internal/user"
 	"github.com/redis/go-redis/v9"
 )
@@ -43,9 +44,12 @@ func NewContainer(
 	// Repos init
 	userRepo := postgres.NewUserRepository(pg)
 	authRepo := postgres.NewAuthRepository(pg)
+	auditRecorder := postgres.NewAuditRepository(pg)
+
+	authorizer := rbac.NewAuthorizer()
 
 	// Setup Services
-	userService := user.NewService(pg, userRepo, r2Storage)
+	userService := user.NewService(pg, userRepo, r2Storage, authorizer, auditRecorder)
 
 	authEventProducer := redisInfra.NewAuthEventProducer(rdb)
 	authSvc := auth.NewService(
@@ -53,8 +57,10 @@ func NewContainer(
 		pg,
 		userRepo,
 		authRepo,
+		authorizer,
 		authEventProducer,
 		redisThrottler,
+		auditRecorder,
 	)
 
 	c := &Container{

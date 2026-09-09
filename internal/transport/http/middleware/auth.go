@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/prawirdani/golang-restapi/internal/auth"
+	"github.com/prawirdani/golang-restapi/internal/rbac"
 	"github.com/prawirdani/golang-restapi/internal/transport/http"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
@@ -37,12 +38,21 @@ func Auth(jwtSecret string) func(next http.Func) http.Func {
 				return err
 			}
 
-			// Inject access token claims into request context
-			ctx := auth.SetAccessTokenCtx(c.Context(), claims)
+			// Inject actor context
+			uid := claims.UserID
+			ctx := rbac.WithContext(c.Context(), rbac.Context{
+				Actor: rbac.Actor{
+					UserID: &uid,
+					Role:   claims.Role,
+				},
+				SessionID: claims.SessionID,
+			})
+
 			// Inject user and session id to logger context
 			ctx = log.WithContext(
 				ctx,
-				log.Group("auth",
+				log.Group(
+					"auth",
 					"uid", claims.UserID,
 					"sid", claims.SessionID,
 				),

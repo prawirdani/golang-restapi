@@ -14,19 +14,46 @@ import (
 	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/config"
 	"github.com/prawirdani/golang-restapi/internal/apperr"
+	"github.com/prawirdani/golang-restapi/internal/audit"
+	"github.com/prawirdani/golang-restapi/internal/rbac"
 	"github.com/prawirdani/golang-restapi/internal/repository"
 	"github.com/prawirdani/golang-restapi/internal/throttle"
 	"github.com/prawirdani/golang-restapi/internal/user"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 
+const (
+	PermChangePassword rbac.Permission = "auth.change-password"
+)
+
+// Audit Actions for the auth entity. Login/logout/change-password are gated by
+// the coarse auth permissions; failure and reuse events have no gate (they
+// record refused attempts) and are always best-effort.
+const (
+	ActionLogin           audit.Action = "auth.login"
+	ActionLoginFailed     audit.Action = "auth.login-failed"
+	ActionLogout          audit.Action = "auth.logout"
+	ActionChangePassword  audit.Action = "auth.change-password"
+	ActionResetPassword   audit.Action = "auth.reset-password"
+	ActionRecoverPassword audit.Action = "auth.password-recovery-request"
+	ActionTokenReuse      audit.Action = "auth.token-reuse-detected"
+)
+
+var permTables = rbac.PermissionTable{
+	rbac.RoleSystem: {PermChangePassword: {}},
+	rbac.RoleAdmin:  {PermChangePassword: {}},
+	rbac.RoleUser:   {}, // Self change password through authorize.SelfOr
+}
+
 type Service struct {
 	cfg           config.Auth
 	transactor    repository.Transactor
 	authRepo      Repository
 	userRepo      UserRepository
+	authorizer    rbac.Authorizer
 	eventProducer EventProducer
 	throttler     throttle.Throttler
+	audit         audit.Recorder
 }
 
 func NewService(
@@ -34,9 +61,13 @@ func NewService(
 	transactor repository.Transactor,
 	userRepo UserRepository,
 	authRepo Repository,
+	authorizer rbac.Authorizer,
 	eventProducer EventProducer,
 	throttler throttle.Throttler,
+	auditRecorder audit.Recorder,
 ) *Service {
+	authorizer.RegisterPermissions(permTables)
+
 	return &Service{
 		cfg:           cfg,
 		transactor:    transactor,
@@ -44,10 +75,22 @@ func NewService(
 		authRepo:      authRepo,
 		eventProducer: eventProducer,
 		throttler:     throttler,
+		authorizer:    authorizer,
+		audit:         auditRecorder,
+	}
+}
+
+// auditBestEffort records an audit entry without propagating failure to the
+// caller. Used for events that must not block the response — failed attempts
+// and unauthenticated flows where the action already refused or has no tx.
+func (s *Service) auditBestEffort(ctx context.Context, e audit.Entry) {
+	if err := s.audit.Record(ctx, e); err != nil {
+		log.WarnCtx(ctx, "failed to record audit event", "action", string(e.Action), "error", err)
 	}
 }
 
 func (s *Service) Register(ctx context.Context, inp user.CreateUserInput) error {
+	// TODO: App config to determine register is public or admin only
 	hashedPassword, err := HashPassword(inp.Password)
 	if err != nil {
 		return err
@@ -64,7 +107,17 @@ func (s *Service) Register(ctx context.Context, inp user.CreateUserInput) error 
 		return err
 	}
 
-	return s.userRepo.Store(ctx, newUser)
+	if err := s.userRepo.Store(ctx, newUser); err != nil {
+		return err
+	}
+
+	s.auditBestEffort(ctx, audit.Entry{
+		Action:   user.ActionCreate,
+		Entity:   "user",
+		EntityID: newUser.ID.String(),
+		Next:     newUser,
+	})
+	return nil
 }
 
 // Login is a method to authenticate the user, returning access token, refresh token, and error if any.
@@ -81,14 +134,32 @@ func (s *Service) Login(
 		// Equalize timing with a dummy bcrypt compare so user enumeration
 		// via response time is not possible.
 		DummyVerify()
+		s.auditBestEffort(ctx, audit.Entry{
+			Action:   ActionLoginFailed,
+			Entity:   "user",
+			EntityID: inp.Email,
+			Meta:     map[string]any{"email": inp.Email},
+		})
 		return nil, ErrWrongCredentials
 	}
 	if usr == nil {
 		DummyVerify()
+		s.auditBestEffort(ctx, audit.Entry{
+			Action:   ActionLoginFailed,
+			Entity:   "user",
+			EntityID: inp.Email,
+			Meta:     map[string]any{"email": inp.Email},
+		})
 		return nil, ErrWrongCredentials
 	}
 
 	if err := VerifyPassword(inp.Password, usr.Password); err != nil {
+		s.auditBestEffort(ctx, audit.Entry{
+			Action:   ActionLoginFailed,
+			Entity:   "user",
+			EntityID: usr.ID.String(),
+			Meta:     map[string]any{"email": inp.Email},
+		})
 		return nil, err
 	}
 
@@ -101,7 +172,7 @@ func (s *Service) Login(
 		return nil, err
 	}
 
-	accessToken, err := s.generateAccessToken(usr.ID, sess.ID)
+	accessToken, err := s.generateAccessToken(usr.ID, sess.ID, usr.Role)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +186,13 @@ func (s *Service) Login(
 		log.ErrorCtx(ctx, "Failed to prune expired sessions", err)
 	}
 
+	s.auditBestEffort(ctx, audit.Entry{
+		Action:   ActionLogin,
+		Entity:   "user",
+		EntityID: usr.ID.String(),
+		Meta:     map[string]any{"session_id": sess.ID.String()},
+	})
+
 	return &TokenPair{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -126,10 +204,16 @@ func (s *Service) RefreshAccessToken(
 	ctx context.Context,
 	refreshToken string,
 ) (*TokenPair, error) {
+	rbacCtx, err := rbac.GetContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	sum := HashStr(refreshToken)
 
 	tokenPair := new(TokenPair)
-	err := s.transactor.Transact(ctx, func(ctx context.Context) error {
+	var reusedUserID, reusedSessionID uuid.UUID
+	err = s.transactor.Transact(ctx, func(ctx context.Context) error {
 		sess, err := s.authRepo.GetSessionByRefreshTokenHash(ctx, sum)
 		if err != nil {
 			if errors.Is(err, apperr.ErrNotFound) {
@@ -149,10 +233,12 @@ func (s *Service) RefreshAccessToken(
 				"user_id", sess.UserID.String(),
 				"session_id", sess.ID.String(),
 			)
+			reusedUserID = sess.UserID
+			reusedSessionID = sess.ID
 			return ErrSessionInvalid
 		}
 
-		newAccessToken, err := s.generateAccessToken(sess.UserID, sess.ID)
+		newAccessToken, err := s.generateAccessToken(sess.UserID, sess.ID, rbacCtx.Actor.Role)
 		if err != nil {
 			return err
 		}
@@ -169,6 +255,16 @@ func (s *Service) RefreshAccessToken(
 		return s.authRepo.UpdateSession(ctx, sess)
 	})
 	if err != nil {
+		// Best-effort audit outside the tx (it rolled back); the reuse signal
+		// is the highest-value security event so it must not be lost.
+		if reusedSessionID != uuid.Nil {
+			s.auditBestEffort(ctx, audit.Entry{
+				Action:   ActionTokenReuse,
+				Entity:   "session",
+				EntityID: reusedSessionID.String(),
+				Meta:     map[string]any{"user_id": reusedUserID.String()},
+			})
+		}
 		return nil, err
 	}
 
@@ -188,7 +284,16 @@ func (s *Service) Logout(ctx context.Context, sessID uuid.UUID) error {
 
 		session.Revoke()
 
-		return s.authRepo.UpdateSession(ctx, session)
+		if err := s.authRepo.UpdateSession(ctx, session); err != nil {
+			return err
+		}
+
+		return s.audit.Record(ctx, audit.Entry{
+			Action:   ActionLogout,
+			Entity:   "user",
+			EntityID: session.UserID.String(),
+			Meta:     map[string]any{"session_id": sessID.String()},
+		})
 	})
 }
 
@@ -237,6 +342,12 @@ func (s *Service) RecoverPassword(ctx context.Context, inp RecoverPasswordInput)
 		log.ErrorCtx(ctx, "Failed to enqueue password recovery email", err)
 		return th, err
 	}
+
+	s.auditBestEffort(ctx, audit.Entry{
+		Action:   ActionRecoverPassword,
+		Entity:   "user",
+		EntityID: msg.To,
+	})
 	return th, nil
 }
 
@@ -285,7 +396,15 @@ func (s *Service) ResetPassword(ctx context.Context, inp ResetPasswordInput) err
 			return err
 		}
 
-		return s.authRepo.RevokeUserSessions(ctx, user.ID)
+		if err := s.authRepo.RevokeUserSessions(ctx, user.ID); err != nil {
+			return err
+		}
+
+		return s.audit.Record(ctx, audit.Entry{
+			Action:   ActionResetPassword,
+			Entity:   "user",
+			EntityID: user.ID.String(),
+		})
 	})
 }
 
@@ -295,6 +414,10 @@ func (s *Service) ChangePassword(
 	userID uuid.UUID,
 	inp ChangePasswordInput,
 ) error {
+	if err := s.authorizer.RequireSelfOr(ctx, userID, PermChangePassword); err != nil {
+		return err
+	}
+
 	usr, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return err
@@ -318,10 +441,18 @@ func (s *Service) ChangePassword(
 			return err
 		}
 		// ponytail: revokes ALL sessions incl. current; pass current sessID to exempt if desired
-		return s.authRepo.RevokeUserSessions(ctx, userID)
+		if err := s.authRepo.RevokeUserSessions(ctx, userID); err != nil {
+			return err
+		}
+
+		return s.audit.Record(ctx, audit.Entry{
+			Action:   ActionChangePassword,
+			Entity:   "user",
+			EntityID: userID.String(),
+		})
 	})
 }
 
-func (s *Service) generateAccessToken(userID, sessID uuid.UUID) (string, error) {
-	return SignAccessToken(s.cfg.JwtSecret, s.cfg.JwtTTL, userID, sessID)
+func (s *Service) generateAccessToken(userID, sessID uuid.UUID, role rbac.Role) (string, error) {
+	return SignAccessToken(s.cfg.JwtSecret, s.cfg.JwtTTL, userID, sessID, role)
 }

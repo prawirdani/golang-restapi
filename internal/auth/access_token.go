@@ -6,7 +6,6 @@
 package auth
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/internal/apperr"
+	"github.com/prawirdani/golang-restapi/internal/rbac"
 )
 
 var (
@@ -30,6 +30,7 @@ var (
 type AccessTokenClaims struct {
 	UserID    uuid.UUID `json:"-"`
 	SessionID uuid.UUID `json:"sid"`
+	Role      rbac.Role `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -39,11 +40,13 @@ func SignAccessToken(
 	ttl time.Duration,
 	userID uuid.UUID,
 	sessID uuid.UUID,
+	role rbac.Role,
 ) (string, error) {
 	now := time.Now()
 
 	claims := AccessTokenClaims{
 		SessionID: sessID,
+		Role:      role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -92,20 +95,20 @@ func VerifyAccessToken(secretKey, tokenStr string) (*AccessTokenClaims, error) {
 	return claims, nil
 }
 
-type accessTokenCtxKey struct{}
-
-var atCtx accessTokenCtxKey
-
-// SetAccessTokenCtx sets the access token jwt claims to the context.
-func SetAccessTokenCtx(ctx context.Context, claims *AccessTokenClaims) context.Context {
-	return context.WithValue(ctx, atCtx, claims)
-}
-
-// GetAccessTokenCtx retrieves the access token jwt claims from the context.
-func GetAccessTokenCtx(ctx context.Context) (*AccessTokenClaims, error) {
-	claims, ok := ctx.Value(atCtx).(*AccessTokenClaims)
-	if !ok {
-		return nil, ErrAccessTokenClaimsNotFound
-	}
-	return claims, nil
-}
+// type accessTokenCtxKey struct{}
+//
+// var atCtx accessTokenCtxKey
+//
+// // SetAccessTokenCtx sets the access token jwt claims to the context.
+// func SetAccessTokenCtx(ctx context.Context, claims *AccessTokenClaims) context.Context {
+// 	return context.WithValue(ctx, atCtx, claims)
+// }
+//
+// // GetAccessTokenCtx retrieves the access token jwt claims from the context.
+// func GetAccessTokenCtx(ctx context.Context) (*AccessTokenClaims, error) {
+// 	claims, ok := ctx.Value(atCtx).(*AccessTokenClaims)
+// 	if !ok {
+// 		return nil, ErrAccessTokenClaimsNotFound
+// 	}
+// 	return claims, nil
+// }

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/prawirdani/golang-restapi/internal/apperr"
+	"github.com/prawirdani/golang-restapi/internal/rbac"
 	"github.com/prawirdani/golang-restapi/pkg/nullable"
 )
 
@@ -24,6 +25,7 @@ type User struct {
 	Password        string                       `db:"password"          json:"-"`
 	Gender          nullable.Nullable[Gender]    `db:"gender"            json:"gender"`
 	Phone           nullable.Nullable[string]    `db:"phone"             json:"phone"`
+	Role            rbac.Role                    `db:"role"              json:"role"`
 	ProfilePicture  nullable.Nullable[string]    `db:"profile_picture"   json:"profile_picture"`
 	CreatedAt       time.Time                    `db:"created_at"        json:"created_at"`
 	UpdatedAt       time.Time                    `db:"updated_at"        json:"updated_at"`
@@ -47,6 +49,10 @@ func (u *User) Validate() error {
 		return ErrValidation.WithDetails("invalid gender")
 	}
 
+	if !u.Role.Valid() {
+		return ErrValidation.WithDetails("invalid role")
+	}
+
 	return nil
 }
 
@@ -64,6 +70,7 @@ func New(name, email, phone string, gender Gender, hashedPassword string) (*User
 		Phone:    nullable.New(phone, false),
 		Gender:   nullable.New(gender, false),
 		Password: hashedPassword,
+		Role:     rbac.RoleUser,
 	}
 
 	if err := u.Validate(); err != nil {

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone VARCHAR(30),
   password VARCHAR(255) NOT NULL,
   profile_picture VARCHAR(255),
+  role VARCHAR(20) NOT NULL DEFAULT 'user',
   -- M=Male, F=Female, O=Other
   gender CHAR(1) CHECK (gender IN ('M', 'F', 'O')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,

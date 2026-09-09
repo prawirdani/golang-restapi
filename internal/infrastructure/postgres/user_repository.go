@@ -36,6 +36,7 @@ func (r *userRepository) Store(ctx context.Context, u *user.User) error {
 		"password":        u.Password,
 		"phone":           u.Phone,
 		"gender":          u.Gender,
+		"role":            u.Role,
 		"profile_picture": u.ProfilePicture,
 	}
 
@@ -122,6 +123,7 @@ SELECT
 	u.phone,
 	u.password,
 	u.gender,
+	u.role,
 	u.profile_picture,
 	u.created_at,
 	u.updated_at 
