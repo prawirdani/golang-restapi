@@ -13,6 +13,8 @@ CREATE TABLE password_recovery_tokens (
   UNIQUE (user_id, token_hash)
 );
 
+CREATE INDEX idx_prt_token_hash ON password_recovery_tokens (token_hash);
+
 -- +goose StatementEnd
 -- +goose Down
 -- +goose StatementBegin
