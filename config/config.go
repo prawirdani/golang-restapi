@@ -23,6 +23,7 @@ type Config struct {
 	Auth     Auth
 	SMTP     SMTP
 	R2       R2
+	Proxy    Proxy
 }
 
 func (c Config) IsProduction() bool {
@@ -54,6 +55,9 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	if err := cfg.R2.Parse(); err != nil {
+		return nil, err
+	}
+	if err := cfg.Proxy.Parse(); err != nil {
 		return nil, err
 	}
 
@@ -95,5 +99,6 @@ func (c *Config) Validate() error {
 			log.Printf("warning: invalid CORS origin: %s\n", origin)
 		}
 	}
+
 	return nil
 }

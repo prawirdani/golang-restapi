@@ -42,6 +42,7 @@ func NewServer(container *Container) (*Server, error) {
 
 	// Apply common middlewares
 	router.Use(middleware.RequestID)
+	router.Use(middleware.RequestMeta(container.Config.Proxy.TrustedProxies))
 	router.Use(middleware.MaxBodySizeMiddleware(httpx.MaxBodySize))
 	router.Use(httpx.Middleware(middleware.PanicRecoverer))
 	router.Use(middleware.Gzip)
