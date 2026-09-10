@@ -1,10 +1,10 @@
 package http
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
+
+	"github.com/gofiber/fiber/v3"
+	"github.com/prawirdani/golang-restapi/pkg/validator"
 )
 
 // MaxBodySize maximum read size from request body
@@ -16,7 +16,7 @@ type Body struct {
 	Message string `json:"message"`
 }
 
-// MarshalJSON implements json.Marshaller to keep the "message" field present (as null
+// MarshalJSON implements [json.Marshaller] to keep the "message" field present (as null
 // when empty) without forcing a pointer on the struct field.
 func (b *Body) MarshalJSON() ([]byte, error) {
 	// Alias avoids infinite recursion into this MarshalJSON; *string lets us
@@ -34,8 +34,9 @@ func (b *Body) MarshalJSON() ([]byte, error) {
 	return json.Marshal(a)
 }
 
-// eTagBytes generates a strong etag from already-marshaled JSON bytes.
-func eTagBytes(b []byte) string {
-	h := sha256.Sum256(b)
-	return fmt.Sprintf(`"%s"`, hex.EncodeToString(h[:]))
+func BindValidateJSON(c fiber.Ctx, dst any) error {
+	if err := c.Bind().JSON(&dst); err != nil {
+		return parseJSONBindErr(err)
+	}
+	return validator.Validate(dst)
 }

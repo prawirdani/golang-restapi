@@ -24,11 +24,11 @@ func TestLoginInput_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			title: "Valid input with user agent",
+			title: "Valid input with session meta",
 			input: LoginInput{
-				Email:     "john@example.com",
-				Password:  "secret123",
-				UserAgent: "Mozilla/5.0",
+				Email:    "john@example.com",
+				Password: "secret123",
+				Meta:     SessionMeta{UserAgent: "Mozilla/5.0"},
 			},
 			wantErr: false,
 		},

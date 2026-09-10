@@ -1,26 +1,25 @@
-package handler
+package http
 
 import (
 	"errors"
-	"net/http"
+	"net"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v3"
 	"github.com/prawirdani/golang-restapi/config"
 	"github.com/prawirdani/golang-restapi/pkg/log"
-	"github.com/prawirdani/golang-restapi/pkg/nullable"
 
 	"github.com/prawirdani/golang-restapi/internal/auth"
 	"github.com/prawirdani/golang-restapi/internal/rbac"
-	httpx "github.com/prawirdani/golang-restapi/internal/transport/http"
 	"github.com/prawirdani/golang-restapi/internal/user"
 )
 
 type AuthHandler struct {
+	cfg         *config.Config
 	authService *auth.Service
 	userService *user.Service
-	cfg         *config.Config
 }
 
 func NewAuthHandler(
@@ -35,11 +34,31 @@ func NewAuthHandler(
 	}
 }
 
-func (h *AuthHandler) Register(c *httpx.Context) error {
+func (h *AuthHandler) Routes(router fiber.Router) {
+	authenticator := Authenticator(h.cfg.Auth.JwtSecret)
+	router.Route("/auth", func(authRouter fiber.Router) {
+		authRouter.Post("/login", RateLimit(5, 1*time.Minute), h.login)
+
+		authRouter.Post("/register", h.register)
+		authRouter.Post("/refresh", h.refreshAccessToken)
+
+		authRouter.Post("/password/recover", RateLimit(5, 1*time.Minute), h.recoverPassword)
+		authRouter.Get("/password/recover/:token", h.getPasswordRecoveryToken)
+		authRouter.Put("/password/reset", h.resetPassword)
+
+		authRouter.Use(authenticator).Route("/", func(r fiber.Router) {
+			r.Delete("/logout", h.logout)
+			r.Get("/me", h.getCurrentUser)
+			r.Put("/password/change", h.changePassword)
+		})
+	})
+}
+
+func (h *AuthHandler) register(c fiber.Ctx) error {
 	ctx := c.Context()
 
 	var reqBody user.CreateUserInput
-	if err := c.BindValidate(&reqBody); err != nil {
+	if err := BindValidateJSON(c, &reqBody); err != nil {
 		return err
 	}
 
@@ -48,19 +67,20 @@ func (h *AuthHandler) Register(c *httpx.Context) error {
 		return err
 	}
 
-	return c.Status(http.StatusCreated).JSON(&httpx.Body{
+	return c.Status(fiber.StatusCreated).JSON(&Body{
 		Message: "registration successful",
 	})
 }
 
-func (h *AuthHandler) Login(c *httpx.Context) error {
+func (h *AuthHandler) login(c fiber.Ctx) error {
 	ctx := c.Context()
 
 	var reqBody auth.LoginInput
-	if err := c.BindValidate(&reqBody); err != nil {
+	if err := BindValidateJSON(c, &reqBody); err != nil {
 		return err
 	}
-	reqBody.UserAgent = c.Get("User-Agent")
+	reqBody.Meta.UserAgent = c.UserAgent()
+	reqBody.Meta.IPAddr = net.ParseIP(c.IP())
 
 	tokens, err := h.authService.Login(ctx, reqBody)
 	if err != nil {
@@ -72,12 +92,12 @@ func (h *AuthHandler) Login(c *httpx.Context) error {
 		return err
 	}
 
-	return c.JSON(&httpx.Body{
+	return c.JSON(&Body{
 		Data: tokens,
 	})
 }
 
-func (h *AuthHandler) GetCurrentUser(c *httpx.Context) error {
+func (h *AuthHandler) getCurrentUser(c fiber.Ctx) error {
 	ctx := c.Context()
 
 	aCtx, err := rbac.GetContext(ctx)
@@ -91,19 +111,15 @@ func (h *AuthHandler) GetCurrentUser(c *httpx.Context) error {
 		return err
 	}
 
-	return c.JSON(&httpx.Body{
+	return c.JSON(&Body{
 		Data: usr,
 	})
 }
 
-func (h *AuthHandler) RefreshAccessToken(c *httpx.Context) error {
+func (h *AuthHandler) refreshAccessToken(c fiber.Ctx) error {
 	ctx := c.Context()
 
-	var refreshToken string
-
-	if cookie, err := c.GetCookie(httpx.RefreshTokenCookie); err == nil {
-		refreshToken = cookie.Value
-	}
+	refreshToken := c.Cookies(RefreshTokenCookie)
 
 	// If token doesn't exist in cookie, retrieve from Authorization header
 	if refreshToken == "" {
@@ -115,10 +131,14 @@ func (h *AuthHandler) RefreshAccessToken(c *httpx.Context) error {
 
 	// If token is still empty, return an error
 	if refreshToken == "" {
-		return httpx.ErrReqUnauthorized
+		return ErrReqUnauthorized
+	}
+	meta := auth.SessionMeta{
+		UserAgent: c.UserAgent(),
+		IPAddr:    net.ParseIP(c.IP()),
 	}
 
-	tokens, err := h.authService.RefreshAccessToken(ctx, refreshToken)
+	tokens, err := h.authService.RefreshAccessToken(ctx, refreshToken, meta)
 	if err != nil {
 		log.ErrorCtx(ctx, "Failed to refresh access token", err)
 		return err
@@ -128,12 +148,12 @@ func (h *AuthHandler) RefreshAccessToken(c *httpx.Context) error {
 		return err
 	}
 
-	return c.JSON(&httpx.Body{
+	return c.JSON(&Body{
 		Data: tokens,
 	})
 }
 
-func (h *AuthHandler) Logout(c *httpx.Context) error {
+func (h *AuthHandler) logout(c fiber.Ctx) error {
 	ctx := c.Context()
 
 	aCtx, _ := rbac.GetContext(ctx)
@@ -145,16 +165,16 @@ func (h *AuthHandler) Logout(c *httpx.Context) error {
 
 	h.removeTokenCookies(c)
 
-	return c.JSON(&httpx.Body{
+	return c.JSON(&Body{
 		Message: "logged out",
 	})
 }
 
-func (h *AuthHandler) RecoverPassword(c *httpx.Context) error {
+func (h *AuthHandler) recoverPassword(c fiber.Ctx) error {
 	ctx := c.Context()
 
 	var reqBody auth.RecoverPasswordInput
-	if err := c.BindValidate(&reqBody); err != nil {
+	if err := BindValidateJSON(c, &reqBody); err != nil {
 		return err
 	}
 
@@ -166,14 +186,14 @@ func (h *AuthHandler) RecoverPassword(c *httpx.Context) error {
 		return err
 	}
 
-	return c.JSON(&httpx.Body{
+	return c.JSON(&Body{
 		Message: "password recovery email has been sent",
 	})
 }
 
-func (h *AuthHandler) GetPasswordRecoveryToken(c *httpx.Context) error {
+func (h *AuthHandler) getPasswordRecoveryToken(c fiber.Ctx) error {
 	ctx := c.Context()
-	token := c.Param("token")
+	token := c.Params("token")
 
 	tokenObj, err := h.authService.GetPasswordRecoveryToken(ctx, token)
 	if err != nil {
@@ -181,24 +201,19 @@ func (h *AuthHandler) GetPasswordRecoveryToken(c *httpx.Context) error {
 		return err
 	}
 
-	type response struct {
-		ExpiresAt time.Time                    `json:"expires_at"`
-		UsedAt    nullable.Nullable[time.Time] `json:"used_at"`
-	}
-
-	return c.JSON(&httpx.Body{
-		Data: response{
-			ExpiresAt: tokenObj.ExpiresAt,
-			UsedAt:    tokenObj.UsedAt,
+	return c.JSON(&Body{
+		Data: map[string]any{
+			"expires_at": tokenObj.ExpiresAt,
+			"used_at":    tokenObj.UsedAt,
 		},
 	})
 }
 
-func (h *AuthHandler) ResetPassword(c *httpx.Context) error {
+func (h *AuthHandler) resetPassword(c fiber.Ctx) error {
 	ctx := c.Context()
 
 	var reqBody auth.ResetPasswordInput
-	if err := c.BindValidate(&reqBody); err != nil {
+	if err := BindValidateJSON(c, &reqBody); err != nil {
 		return err
 	}
 
@@ -207,16 +222,16 @@ func (h *AuthHandler) ResetPassword(c *httpx.Context) error {
 		return err
 	}
 
-	return c.JSON(&httpx.Body{
+	return c.JSON(&Body{
 		Message: "Password has been reset successfully!",
 	})
 }
 
-func (h *AuthHandler) ChangePassword(c *httpx.Context) error {
+func (h *AuthHandler) changePassword(c fiber.Ctx) error {
 	ctx := c.Context()
 
 	var reqBody auth.ChangePasswordInput
-	if err := c.BindValidate(&reqBody); err != nil {
+	if err := BindValidateJSON(c, &reqBody); err != nil {
 		return err
 	}
 
@@ -230,53 +245,52 @@ func (h *AuthHandler) ChangePassword(c *httpx.Context) error {
 		return err
 	}
 
-	return c.JSON(&httpx.Body{
+	return c.JSON(&Body{
 		Message: "Password has been changed successfully!",
 	})
 }
 
-func (h *AuthHandler) setTokenCookies(c *httpx.Context, tokenPair *auth.TokenPair) error {
+func (h *AuthHandler) setTokenCookies(c fiber.Ctx, tokenPair *auth.TokenPair) error {
 	if tokenPair == nil {
 		return errors.New("token pair is nil")
 	}
 
 	now := time.Now()
-	base := http.Cookie{
-		HttpOnly: true,
+	base := fiber.Cookie{
+		HTTPOnly: true,
+		Path:     "/", // Domain: ".example.com",
 		Secure:   h.cfg.IsProduction(),
-		SameSite: http.SameSiteLaxMode,
-		Path:     "/",
-		// Domain: ".example.com",
+		SameSite: "Lax",
 	}
 
 	accessTokenCookie := base
-	accessTokenCookie.Name = httpx.AccessTokenCookie
+	accessTokenCookie.Name = AccessTokenCookie
 	accessTokenCookie.Value = tokenPair.AccessToken
 	accessTokenCookie.Expires = now.Add(h.cfg.Auth.JwtTTL)
-	c.SetCookie(&accessTokenCookie)
+	c.Cookie(&accessTokenCookie)
 
 	refreshTokenCookie := base
-	refreshTokenCookie.Name = httpx.RefreshTokenCookie
+	refreshTokenCookie.Name = RefreshTokenCookie
 	refreshTokenCookie.Value = tokenPair.RefreshToken
 	refreshTokenCookie.Expires = now.Add(h.cfg.Auth.SessionTTL)
-	c.SetCookie(&refreshTokenCookie)
+	c.Cookie(&refreshTokenCookie)
 
 	return nil
 }
 
-func (h *AuthHandler) removeTokenCookies(c *httpx.Context) {
-	accessTokenCookie := &http.Cookie{
-		Name:     httpx.AccessTokenCookie,
+func (h *AuthHandler) removeTokenCookies(c fiber.Ctx) {
+	accessTokenCookie := &fiber.Cookie{
+		Name:     AccessTokenCookie,
 		Value:    "",
 		Expires:  time.Unix(0, 0),
-		HttpOnly: true,
+		HTTPOnly: true,
 		Secure:   h.cfg.IsProduction(),
 		Path:     "/",
 	}
 
 	sessCookie := *accessTokenCookie
-	sessCookie.Name = httpx.RefreshTokenCookie
+	sessCookie.Name = RefreshTokenCookie
 
-	c.SetCookie(accessTokenCookie)
-	c.SetCookie(&sessCookie)
+	c.Cookie(accessTokenCookie)
+	c.Cookie(&sessCookie)
 }

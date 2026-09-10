@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 
@@ -23,14 +24,6 @@ import (
 
 func init() {
 	log.SetLogger(log.EmptyLog)
-}
-
-// actorCtx returns a context carrying a user actor for authz-gated paths.
-func actorCtx() context.Context {
-	uid := uuid.New()
-	return rbac.WithContext(context.Background(), rbac.Context{
-		Actor: rbac.Actor{UserID: &uid, Role: rbac.RoleUser},
-	})
 }
 
 func TestService_Register(t *testing.T) {
@@ -78,9 +71,9 @@ func TestService_Login(t *testing.T) {
 		f := setupTestFixture(t)
 
 		input := auth.LoginInput{
-			Email:     "john@example.com",
-			Password:  "password123",
-			UserAgent: "test-agent",
+			Email:    "john@example.com",
+			Password: "password123",
+			Meta:     auth.SessionMeta{UserAgent: "test-agent"},
 		}
 
 		hashedPassword, err := auth.HashPassword(input.Password)
@@ -152,13 +145,14 @@ func TestService_Login(t *testing.T) {
 
 func TestService_RefreshAccessToken(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		ctx := actorCtx()
+		ctx := context.Background()
 		f := setupTestFixture(t)
 
-		session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", f.cfg.SessionTTL)
+		session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", net.ParseIP("203.0.113.5"), f.cfg.SessionTTL)
 		require.NoError(t, err)
 
 		prevRefreshToken := refreshToken
+		meta := auth.SessionMeta{UserAgent: "new-agent", IPAddr: net.ParseIP("198.51.100.7")}
 
 		f.transactor.EXPECT().
 			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
@@ -166,12 +160,15 @@ func TestService_RefreshAccessToken(t *testing.T) {
 				f.authRepo.EXPECT().
 					GetSessionByRefreshTokenHash(ctx, mock.AnythingOfType("[]uint8")).
 					Return(session, nil)
+				f.userRepo.EXPECT().
+					GetByID(ctx, session.UserID).
+					Return(&user.User{ID: session.UserID, Role: rbac.RoleUser}, nil)
 				f.authRepo.EXPECT().UpdateSession(ctx, session).Return(nil)
 
 				return fn(ctx)
 			})
 
-		tokenPair, err := f.service.RefreshAccessToken(ctx, prevRefreshToken)
+		tokenPair, err := f.service.RefreshAccessToken(ctx, prevRefreshToken, meta)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, tokenPair)
@@ -179,10 +176,10 @@ func TestService_RefreshAccessToken(t *testing.T) {
 	})
 
 	t.Run("Session expired", func(t *testing.T) {
-		ctx := actorCtx()
+		ctx := context.Background()
 		f := setupTestFixture(t)
 
-		session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", f.cfg.SessionTTL)
+		session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", net.ParseIP("203.0.113.5"), f.cfg.SessionTTL)
 		require.NoError(t, err)
 		session.ExpiresAt = time.Now().Add(-time.Hour) // Set to past
 
@@ -195,7 +192,7 @@ func TestService_RefreshAccessToken(t *testing.T) {
 				return fn(ctx)
 			})
 
-		tokenPair, err := f.service.RefreshAccessToken(ctx, refreshToken)
+		tokenPair, err := f.service.RefreshAccessToken(ctx, refreshToken, auth.SessionMeta{})
 
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, auth.ErrSessionInvalid)
@@ -208,7 +205,7 @@ func TestService_Logout(t *testing.T) {
 		ctx := context.Background()
 		f := setupTestFixture(t)
 
-		session, _, err := auth.NewSession(uuid.New(), "test-agent", f.cfg.SessionTTL)
+		session, _, err := auth.NewSession(uuid.New(), "test-agent", net.ParseIP("203.0.113.5"), f.cfg.SessionTTL)
 		require.NoError(t, err)
 
 		f.transactor.EXPECT().
@@ -228,7 +225,7 @@ func TestService_Logout(t *testing.T) {
 		f := setupTestFixture(t)
 
 		// Create valid session and manually set it as expired
-		session, _, err := auth.NewSession(uuid.New(), "test-agent", f.cfg.SessionTTL)
+		session, _, err := auth.NewSession(uuid.New(), "test-agent", net.ParseIP("203.0.113.5"), f.cfg.SessionTTL)
 		require.NoError(t, err)
 		session.ExpiresAt = time.Now().Add(-time.Hour) // Set to past
 
@@ -588,10 +585,10 @@ func TestService_GetPasswordRecoveryToken(t *testing.T) {
 }
 
 func TestService_RefreshAccessToken_SessionRevoked(t *testing.T) {
-	ctx := actorCtx()
+	ctx := context.Background()
 	f := setupTestFixture(t)
 
-	session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", f.cfg.SessionTTL)
+	session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", net.ParseIP("203.0.113.5"), f.cfg.SessionTTL)
 	require.NoError(t, err)
 	session.RevokedAt.Set(time.Now(), false) // Revoke the session
 
@@ -604,7 +601,7 @@ func TestService_RefreshAccessToken_SessionRevoked(t *testing.T) {
 			return fn(ctx)
 		})
 
-	tokenPair, err := f.service.RefreshAccessToken(ctx, refreshToken)
+	tokenPair, err := f.service.RefreshAccessToken(ctx, refreshToken, auth.SessionMeta{})
 
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, auth.ErrSessionInvalid)

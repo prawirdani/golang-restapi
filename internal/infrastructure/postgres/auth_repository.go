@@ -29,12 +29,13 @@ func (r *authRepository) StoreSession(ctx context.Context, session *auth.Session
 	}
 
 	args := pgx.NamedArgs{
-		"id":            session.ID,
-		"user_id":       session.UserID,
-		"refresh_token": session.RefreshTokenHash,
-		"user_agent":    session.UserAgent,
-		"expires_at":    session.ExpiresAt,
-		"accessed_at":   session.AccessedAt,
+		"id":                 session.ID,
+		"user_id":            session.UserID,
+		"refresh_token_hash": session.RefreshTokenHash,
+		"ip_addr":            session.IPAddr,
+		"user_agent":         session.UserAgent,
+		"expires_at":         session.ExpiresAt,
+		"accessed_at":        session.AccessedAt,
 	}
 	query := generateInsertQuery("sessions", args)
 	conn := r.db.GetConn(ctx)
@@ -53,13 +54,15 @@ func (r *authRepository) UpdateSession(ctx context.Context, session *auth.Sessio
 		return errors.New("session is nil")
 	}
 
-	query := "UPDATE sessions SET refresh_token=@refresh_token, revoked_at=@revoked_at, accessed_at=@accessed_at WHERE id=@id"
 	args := pgx.NamedArgs{
-		"refresh_token": session.RefreshTokenHash,
-		"revoked_at":    session.RevokedAt,
-		"accessed_at":   session.AccessedAt,
-		"id":            session.ID,
+		"refresh_token_hash": session.RefreshTokenHash,
+		"ip_addr":            session.IPAddr,
+		"user_agent":         session.UserAgent,
+		"revoked_at":         session.RevokedAt,
+		"accessed_at":        session.AccessedAt,
+		"id":                 session.ID, // for WHERE clause
 	}
+	query := generateUpdateQuery("sessions", args, "id")
 	conn := r.db.GetConn(ctx)
 
 	if _, err := conn.Exec(ctx, query, args); err != nil {
@@ -123,7 +126,7 @@ func (r *authRepository) GetSessionByRefreshTokenHash(
 	ctx context.Context,
 	tokenHash []byte,
 ) (*auth.Session, error) {
-	query := "SELECT * FROM sessions WHERE refresh_token=$1"
+	query := "SELECT * FROM sessions WHERE refresh_token_hash=$1"
 	conn := r.db.GetConn(ctx)
 	if r.db.IsTxConn(conn) {
 		query += "\nFOR UPDATE"
@@ -134,7 +137,7 @@ func (r *authRepository) GetSessionByRefreshTokenHash(
 		if noRowsErr(err) {
 			return nil, apperr.ErrNotFound
 		}
-		return nil, fmt.Errorf("session by refresh_token token hash: %w", err)
+		return nil, fmt.Errorf("session by refresh_token_hash token hash: %w", err)
 	}
 
 	return &session, nil

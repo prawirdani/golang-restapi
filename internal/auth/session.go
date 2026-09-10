@@ -7,6 +7,7 @@ package auth
 
 import (
 	"errors"
+	"net"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,18 +23,20 @@ var (
 
 // Session represents a single login session for a user
 type Session struct {
-	ID               uuid.UUID                    `db:"id"`            // session ID (UUIDv7)
-	UserID           uuid.UUID                    `db:"user_id"`       // owner user ID
-	RefreshTokenHash []byte                       `db:"refresh_token"` // SHA-256 hash of refresh token
-	UserAgent        string                       `db:"user_agent"`    // client info
-	ExpiresAt        time.Time                    `db:"expires_at"`    // session expiry
-	RevokedAt        nullable.Nullable[time.Time] `db:"revoked_at"`    // revocation timestamp
-	AccessedAt       time.Time                    `db:"accessed_at"`   // last activity
+	ID               uuid.UUID                    `db:"id"`                 // session ID (UUIDv7)
+	UserID           uuid.UUID                    `db:"user_id"`            // owner user ID
+	RefreshTokenHash []byte                       `db:"refresh_token_hash"` // SHA-256 hash of refresh token
+	IPAddr           net.IP                       `db:"ip_addr"`            // client ip
+	UserAgent        string                       `db:"user_agent"`         // client info
+	AccessedAt       time.Time                    `db:"accessed_at"`        // creation time
+	CreatedAt        time.Time                    `db:"created_at"`         // last activity
+	ExpiresAt        time.Time                    `db:"expires_at"`         // session expiry
+	RevokedAt        nullable.Nullable[time.Time] `db:"revoked_at"`         // revocation timestamp
 }
 
 // NewSession creates a new session with a generated refresh token
 // Returns session struct (with hashed token) and raw token for client
-func NewSession(userID uuid.UUID, userAgent string, ttl time.Duration) (*Session, string, error) {
+func NewSession(userID uuid.UUID, userAgent string, ip net.IP, ttl time.Duration) (*Session, string, error) {
 	if ttl <= 0 {
 		return nil, "", ErrSessionInvalidTTL
 	}
@@ -63,6 +66,7 @@ func NewSession(userID uuid.UUID, userAgent string, ttl time.Duration) (*Session
 		RefreshTokenHash: refreshTokenHash,
 		ExpiresAt:        now.Add(ttl),
 		AccessedAt:       now,
+		IPAddr:           ip,
 	}
 
 	return &sess, refreshToken, nil
@@ -80,15 +84,17 @@ func (s *Session) Revoke() {
 
 // Rotate generates a new refresh token, updates the session hash,
 // and returns the new raw token for the client
-func (s *Session) Rotate() (string, error) {
+func (s *Session) Rotate(meta SessionMeta) (string, error) {
 	newToken, err := generateRefreshToken()
 	if err != nil {
 		return "", err
 	}
 
-	// Update hash and access time
+	// Update hash, access time and meta
 	s.RefreshTokenHash = HashStr(newToken)
 	s.AccessedAt = time.Now()
+	s.IPAddr = meta.IPAddr
+	s.UserAgent = meta.UserAgent
 
 	return newToken, nil
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gofiber/fiber/v3"
 	"github.com/prawirdani/golang-restapi/internal/apperr"
 	"github.com/prawirdani/golang-restapi/pkg/validator"
 )
@@ -115,7 +116,7 @@ func ErrInvalidParam(name string, value string) *Error {
 	}
 }
 
-func NormalizeError(err error) *Error {
+func ParseError(err error) *Error {
 	// Already normalized
 	if e, ok := err.(*Error); ok {
 		return e
@@ -128,8 +129,8 @@ func NormalizeError(err error) *Error {
 	}
 
 	var (
-		maxBytesErr   *http.MaxBytesError
-		jsonBindErr   *JSONBindError
+		fiberErr      *fiber.Error
+		jsonBindErr   *jsonBindError
 		validationErr *validator.ValidationError
 		appErr        *apperr.Error
 	)
@@ -145,8 +146,12 @@ func NormalizeError(err error) *Error {
 		body.status = 499 // Client Closed Request
 		return body
 
-	case errors.As(err, &maxBytesErr):
-		return ErrBodyTooLarge.SetDetails(map[string]int{"max_bytes": int(maxBytesErr.Limit)})
+	case errors.As(err, &fiberErr):
+		if fiberErr.Code == fiber.StatusRequestEntityTooLarge {
+			return ErrBodyTooLarge.SetDetails(map[string]int{"max_bytes": int(MaxBodySize)})
+		}
+		return body
+
 	case errors.As(err, &jsonBindErr):
 		body.status = http.StatusBadRequest
 		body.Message = jsonBindErr.Message
@@ -166,15 +171,15 @@ func NormalizeError(err error) *Error {
 	return body
 }
 
-type JSONBindError struct {
+type jsonBindError struct {
 	Message string
 }
 
-func (e *JSONBindError) Error() string {
+func (e *jsonBindError) Error() string {
 	return e.Message
 }
 
-func ParseJSONBindErr(err error) error {
+func parseJSONBindErr(err error) error {
 	var syntaxError *json.SyntaxError
 	var unmarshalTypeError *json.UnmarshalTypeError
 
@@ -208,15 +213,7 @@ func ParseJSONBindErr(err error) error {
 		return err
 	}
 
-	return &JSONBindError{Message: msg}
-}
-
-func IsMissingFileError(err error) bool {
-	if errors.Is(err, http.ErrMissingFile) || errors.Is(err, io.EOF) {
-		return true
-	}
-
-	return false
+	return &jsonBindError{Message: msg}
 }
 
 var appErrStatusMap = map[apperr.Kind]int{

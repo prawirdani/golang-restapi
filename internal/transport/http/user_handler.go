@@ -1,23 +1,35 @@
-package handler
+package http
 
 import (
+	"github.com/gofiber/fiber/v3"
+	"github.com/prawirdani/golang-restapi/config"
 	"github.com/prawirdani/golang-restapi/internal/rbac"
-	httpx "github.com/prawirdani/golang-restapi/internal/transport/http"
 	"github.com/prawirdani/golang-restapi/internal/user"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 
 type UserHandler struct {
+	cfg         *config.Config
 	userService *user.Service
 }
 
-func NewUserHandler(userService *user.Service) *UserHandler {
+func NewUserHandler(cfg *config.Config, userService *user.Service) *UserHandler {
 	return &UserHandler{
+		cfg:         cfg,
 		userService: userService,
 	}
 }
 
-func (h *UserHandler) UpdateUser(c *httpx.Context) error {
+func (h *UserHandler) Routes(router fiber.Router) {
+	authenticator := Authenticator(h.cfg.Auth.JwtSecret)
+	router.Use(authenticator).Route("/users", func(router fiber.Router) {
+		router.Put("/", h.updateUser)
+		router.Delete("/profile-picture", h.deleteProfilePicture)
+		router.Put("/profile-picture", h.changeProfilePicture)
+	})
+}
+
+func (h *UserHandler) updateUser(c fiber.Ctx) error {
 	ctx := c.Context()
 
 	authz, err := rbac.GetContext(ctx)
@@ -27,7 +39,7 @@ func (h *UserHandler) UpdateUser(c *httpx.Context) error {
 	}
 
 	var reqBody user.UpdateUserInput
-	if err := c.BindValidate(&reqBody); err != nil {
+	if err := BindValidateJSON(c, &reqBody); err != nil {
 		return err
 	}
 
@@ -35,37 +47,35 @@ func (h *UserHandler) UpdateUser(c *httpx.Context) error {
 		return err
 	}
 
-	return c.JSON(&httpx.Body{
+	return c.JSON(&Body{
 		Message: "user updated!",
 	})
 }
 
-func (h *UserHandler) ChangeProfilePicture(c *httpx.Context) error {
+func (h *UserHandler) changeProfilePicture(c fiber.Ctx) error {
 	ctx := c.Context()
 
-	if err := c.EnsureMultipartForm(); err != nil {
-		return err
+	if !c.IsMultipart() {
+		return ErrMultipartForm.SetMessage("request 'Content-Type' header must be multipart/form-data")
 	}
-	defer c.CleanupMultipart()
 
-	fh, err := c.FormFile(httpx.ImageFormKey)
+	fileHeaders, err := c.FormFile(ImageFormKey)
 	if err != nil {
-		if httpx.IsMissingFileError(err) {
-			return httpx.ErrMultipartForm.SetDetails(map[string]any{
-				"key":     httpx.ImageFormKey,
-				"message": "profile picture is required",
-			})
-		}
-		log.ErrorCtx(ctx, "Failed to parse profile picture form file", err)
-		return err
+		return ErrMultipartForm.SetMessage("profile picture is required").SetDetails(map[string]any{
+			"key": ImageFormKey,
+		})
 	}
 
-	file := httpx.NewParsedFile(fh)
-	defer file.Close()
+	file := NewParsedFile(fileHeaders)
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.ErrorCtx(ctx, "failed to close parsed file", err)
+		}
+	}()
 
-	if err := httpx.ValidateFile(ctx, file, httpx.ValidationRules{
+	if err := ValidateFile(ctx, file, ValidationRules{
 		MaxSize:      2 << 20, // 2MB,
-		AllowedMIMEs: httpx.ImageMIMEs,
+		AllowedMIMEs: ImageMIMEs,
 	}); err != nil {
 		log.ErrorCtx(ctx, "Failed to validate image file", err)
 		return err
@@ -82,12 +92,12 @@ func (h *UserHandler) ChangeProfilePicture(c *httpx.Context) error {
 		return err
 	}
 
-	return c.JSON(&httpx.Body{
+	return c.JSON(&Body{
 		Message: "profile picture updated!",
 	})
 }
 
-func (h *UserHandler) DeleteProfilePicture(c *httpx.Context) error {
+func (h *UserHandler) deleteProfilePicture(c fiber.Ctx) error {
 	ctx := c.Context()
 
 	authz, err := rbac.GetContext(ctx)
@@ -99,7 +109,7 @@ func (h *UserHandler) DeleteProfilePicture(c *httpx.Context) error {
 		return err
 	}
 
-	return c.JSON(&httpx.Body{
+	return c.JSON(&Body{
 		Message: "profile picture deleted",
 	})
 }

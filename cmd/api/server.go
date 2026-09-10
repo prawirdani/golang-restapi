@@ -1,176 +1,105 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	httpx "github.com/prawirdani/golang-restapi/internal/transport/http"
-	"github.com/prawirdani/golang-restapi/internal/transport/http/handler"
-	"github.com/prawirdani/golang-restapi/internal/transport/http/middleware"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/compress"
+	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/etag"
+	"github.com/gofiber/fiber/v3/middleware/logger"
+	recoverer "github.com/gofiber/fiber/v3/middleware/recover"
+	"github.com/gofiber/fiber/v3/middleware/requestid"
+	"github.com/prawirdani/golang-restapi/internal/transport/http"
 	"github.com/prawirdani/golang-restapi/pkg/log"
-	"github.com/prawirdani/golang-restapi/pkg/metrics"
 )
 
 type Server struct {
+	app       *fiber.App
 	container *Container
-	router    *chi.Mux
-	metrics   *metrics.Metrics
 }
 
 // NewServer acts as a constructor, initializing the server and its dependencies.
-func NewServer(container *Container) (*Server, error) {
+func NewServer(container *Container, onPostShutdown func(error) error) (*Server, error) {
 	if container == nil {
 		return nil, fmt.Errorf("container is required")
 	}
 
-	router := chi.NewRouter()
-	metrics := metrics.Init(
-		container.Config.App.Version,
-		string(container.Config.App.Environment),
-		container.Config.App.Port+1,
-	)
+	app := http.NewRouter(container.Config)
 
 	if container.Config.IsProduction() {
-		router.Use(middleware.RateLimit(50, 1*time.Minute))
-		router.Use(metrics.InstrumentHandler) // Instrument the main router
-	} else {
-		router.Use(middleware.ReqLogger)
+		app.Use(http.RateLimit(20, 1*time.Minute))
 	}
 
-	// Apply common middlewares
-	router.Use(middleware.RequestID)
-	router.Use(middleware.RequestMeta(container.Config.Proxy.TrustedProxies))
-	router.Use(middleware.MaxBodySizeMiddleware(httpx.MaxBodySize))
-	router.Use(httpx.Middleware(middleware.PanicRecoverer))
-	router.Use(middleware.Gzip)
-	router.Use(middleware.Cors(
-		container.Config.Cors.Origins,
-		container.Config.Cors.Credentials,
-		!container.Config.IsProduction(),
-	))
-
-	router.NotFound(httpx.Handler(func(c *httpx.Context) error {
-		return httpx.ErrNotFoundHandler
+	app.Use(recoverer.New())
+	app.Use(logger.New())
+	app.Use(requestid.New())
+	app.Use(http.RequestLoggerContext())
+	app.Use(http.RequestMeta())
+	app.Use(compress.New())
+	app.Use(etag.New())
+	app.Use(cors.New(cors.Config{
+		AllowOrigins:     container.Config.Cors.Origins,
+		AllowCredentials: container.Config.Cors.Credentials,
+		AllowMethods:     []string{"OPTIONS", "HEAD", "GET", "POST", "PUT", "PATCH", "DELETE"},
+		AllowHeaders:     []string{"Accept", "Authorization", "Content-Type"},
+		ExposeHeaders: []string{
+			"X-RateLimit-Limit",
+			"X-RateLimit-Remaining",
+			"X-RateLimit-Reset",
+			"X-Request-Id",
+			"Retry-After",
+		},
+		MaxAge: 600,
 	}))
 
-	router.MethodNotAllowed(httpx.Handler(func(c *httpx.Context) error {
-		return httpx.ErrMethodNotAllowedHandler
-	}))
-
-	// Health check route
-	router.Get("/status", httpx.Handler(func(c *httpx.Context) error {
-		return c.JSON(&httpx.Body{
+	app.Get("/healthz", func(c fiber.Ctx) error {
+		log.DebugCtx(c.Context(), "Hello")
+		return c.JSON(http.Body{
 			Message: "services up and running",
 		})
-	}))
+	})
 
 	svr := &Server{
 		container: container,
-		router:    router,
-		metrics:   metrics,
+		app:       app,
+		// metrics:   metrics,
 	}
 
 	// Setup API routes
 	svr.setupHandlers()
 
+	// Not Found Handler
+	app.Use(func(c fiber.Ctx) error {
+		return http.ErrNotFoundHandler
+	})
+
+	app.Hooks().OnPostShutdown(onPostShutdown)
+
 	return svr, nil
 }
 
-func (s *Server) Start(ctx context.Context) error {
-	cfg := s.container.Config
-	port := cfg.App.Port
-
-	// Metrics server
-	var metricServer *http.Server
-	if cfg.IsProduction() {
-		metricServer = &http.Server{
-			Addr:    fmt.Sprintf(":%v", port+1),
-			Handler: s.metrics.ExporterHandler(),
-		}
-
-		// Start metrics server
-		go func() {
-			log.Info(
-				fmt.Sprintf("Metrics serving on 0.0.0.0:%v/metrics", port+1),
-			)
-			if err := metricServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Error("Metrics server stopped unexpectedly", err)
-			}
-		}()
-	}
-
-	// API server
-	apiServer := &http.Server{
-		Addr:         fmt.Sprintf(":%v", port),
-		Handler:      s.router,
-		ReadTimeout:  60 * time.Second,
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  120 * time.Second,
-	}
-
-	// Start API server
-	go func() {
-		log.Info(fmt.Sprintf("API server listening on 0.0.0.0:%v", port))
-		if err := apiServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error("API server stopped unexpectedly", err)
-		}
-	}()
-
-	// Wait for context cancellation
-	<-ctx.Done()
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	if err := apiServer.Shutdown(shutdownCtx); err != nil {
-		log.Error("Failed to shutdown API server", err)
-	}
-
-	if metricServer != nil {
-		if err := metricServer.Shutdown(shutdownCtx); err != nil {
-			log.Error("Failed to shutdown Metrics server", err)
-		}
-	}
-	return nil
+func (s *Server) Start() error {
+	port := s.container.Config.App.Port
+	return s.app.Listen(fmt.Sprintf("127.0.0.1:%v", port))
 }
 
-var fn = httpx.Handler
+func (s *Server) Shutdown() error {
+	return s.app.Shutdown()
+}
 
 // setupHandlers initializes and registers all API handlers.
 func (s *Server) setupHandlers() {
 	svcs := s.container.Services
 
 	// Initialize Handlers
-	userHandler := handler.NewUserHandler(svcs.UserService)
-	authHandler := handler.NewAuthHandler(s.container.Config, svcs.AuthService, svcs.UserService)
-	authMiddleware := httpx.Middleware(middleware.Auth(s.container.Config.Auth.JwtSecret))
+	userHandler := http.NewUserHandler(s.container.Config, svcs.UserService)
+	authHandler := http.NewAuthHandler(s.container.Config, svcs.AuthService, svcs.UserService)
 
 	// Register API routes
-	s.router.Route("/api", func(r chi.Router) {
-		r.Route("/auth", func(r chi.Router) {
-			// ponytail: per-IP limit; per-account lockout counter is future work
-			r.With(middleware.RateLimit(5, 1*time.Minute)).Post("/login", fn(authHandler.Login))
-			r.Post("/register", fn(authHandler.Register))
-			r.Post("/refresh", fn(authHandler.RefreshAccessToken))
-
-			r.With(middleware.RateLimit(5, 1*time.Minute)).Post("/password/recover", fn(authHandler.RecoverPassword))
-			r.Get("/password/recover/{token}", fn(authHandler.GetPasswordRecoveryToken))
-			r.Put("/password/reset", fn(authHandler.ResetPassword))
-
-			r.With(authMiddleware).Group(func(r chi.Router) {
-				r.Delete("/logout", fn(authHandler.Logout))
-				r.Get("/me", fn(authHandler.GetCurrentUser))
-				r.Put("/password/change", fn(authHandler.ChangePassword))
-			})
-		})
-
-		r.With(authMiddleware).Route("/users", func(r chi.Router) {
-			r.Put("/", fn(userHandler.UpdateUser))
-			r.Delete("/profile-picture", fn(userHandler.DeleteProfilePicture))
-			r.Put("/profile-picture", fn(userHandler.ChangeProfilePicture))
-		})
+	s.app.Route("/api", func(router fiber.Router) {
+		authHandler.Routes(router)
+		userHandler.Routes(router)
 	})
 }

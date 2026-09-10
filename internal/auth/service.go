@@ -165,7 +165,8 @@ func (s *Service) Login(
 
 	sess, refreshToken, err := NewSession(
 		usr.ID,
-		inp.UserAgent,
+		inp.Meta.UserAgent,
+		inp.Meta.IPAddr,
 		s.cfg.SessionTTL,
 	)
 	if err != nil {
@@ -203,17 +204,13 @@ func (s *Service) Login(
 func (s *Service) RefreshAccessToken(
 	ctx context.Context,
 	refreshToken string,
+	meta SessionMeta,
 ) (*TokenPair, error) {
-	rbacCtx, err := rbac.GetContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	sum := HashStr(refreshToken)
 
 	tokenPair := new(TokenPair)
 	var reusedUserID, reusedSessionID uuid.UUID
-	err = s.transactor.Transact(ctx, func(ctx context.Context) error {
+	err := s.transactor.Transact(ctx, func(ctx context.Context) error {
 		sess, err := s.authRepo.GetSessionByRefreshTokenHash(ctx, sum)
 		if err != nil {
 			if errors.Is(err, apperr.ErrNotFound) {
@@ -238,14 +235,19 @@ func (s *Service) RefreshAccessToken(
 			return ErrSessionInvalid
 		}
 
-		newAccessToken, err := s.generateAccessToken(sess.UserID, sess.ID, rbacCtx.Actor.Role)
+		u, err := s.userRepo.GetByID(ctx, sess.UserID)
+		if err != nil {
+			return err
+		}
+
+		newAccessToken, err := s.generateAccessToken(sess.UserID, sess.ID, u.Role)
 		if err != nil {
 			return err
 		}
 		tokenPair.AccessToken = newAccessToken
 
 		// Rotate refreshToken
-		newRefreshToken, err := sess.Rotate()
+		newRefreshToken, err := sess.Rotate(meta)
 		if err != nil {
 			return err
 		}

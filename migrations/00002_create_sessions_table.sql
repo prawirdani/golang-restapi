@@ -6,10 +6,12 @@ SELECT
 CREATE TABLE IF NOT EXISTS sessions (
   id UUID PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  refresh_token BYTEA NOT NULL UNIQUE,
+  refresh_token_hash BYTEA NOT NULL UNIQUE,
   user_agent VARCHAR(255) NOT NULL,
-  expires_at TIMESTAMPTZ NOT NULL,
+  ip_addr INET NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
   accessed_at TIMESTAMPTZ NOT NULL DEFAULT now (),
+  expires_at TIMESTAMPTZ NOT NULL,
   revoked_at TIMESTAMPTZ
 );
 
