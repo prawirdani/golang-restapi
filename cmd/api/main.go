@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -60,7 +59,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	var isShuttingDown atomic.Bool
 	// Start
 	go func() {
 		if err := server.Start(); err != nil {
@@ -74,7 +72,6 @@ func main() {
 	<-quit
 
 	// Begin graceful shutdown
-	isShuttingDown.Store(true)
 	time.Sleep(5 * time.Second) // Let LB drain
 
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)

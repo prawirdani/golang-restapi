@@ -137,7 +137,7 @@ func (r *userRepository) getUserBy(
 	query := strs.Concatenate(
 		userSelectQuery,
 		field,
-		"=$1",
+		"=$1 AND u.deleted_at IS NULL",
 	)
 	conn := r.db.GetConn(ctx)
 	if r.db.IsTxConn(conn) {
