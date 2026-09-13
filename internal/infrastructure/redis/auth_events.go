@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/prawirdani/golang-restapi/internal/auth"
-	"github.com/prawirdani/golang-restapi/internal/messaging"
+	"github.com/prawirdani/golang-restapi/internal/ports/messaging"
 	"github.com/prawirdani/golang-restapi/internal/worker"
 	"github.com/redis/go-redis/v9"
 )

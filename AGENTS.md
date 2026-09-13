@@ -34,13 +34,18 @@ internal/
   auth/                  # Auth business logic — JWT, sessions, password recovery, crypto
   user/                  # User business logic — CRUD, profile picture
   apperr/                # Application error kernel: Error, Kind, constructors, translation helpers
-  messaging/             # Messaging ports (envelope, handler)
-  storage/               # Storage port (file, storage)
+  rbac/                  # Role/permission authorization (code-defined, in-memory)
+  audit/                 # Audit recording (prev/next JSONB + request metadata)
+  ports/                 # Interfaces (ports) that infrastructure implements
+    messaging/           #   message envelope + handler
+    repository/          #   Transactor (atomic multi-repository writes)
+    storage/             #   object storage (file, storage)
+    throttle/            #   request throttling (Throttler, Result)
   infrastructure/
     postgres/            # pgx repository implementations
     r2/                  # R2 storage
-    redis/               # Redis Streams producer/consumer
-  transport/http/        # context.go (Context, Handler, error normalization), handler/, middleware/
+    redis/               # Redis Streams producer/consumer, throttle
+  transport/http/        # Fiber handlers, middleware, error normalization, router
   worker/                # Email event consumer (Redis -> SMTP)
 pkg/                     # log, mailer, metrics, nullable, strings, validator
 migrations/              # Goose SQL migrations

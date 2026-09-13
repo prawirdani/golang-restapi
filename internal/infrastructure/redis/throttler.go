@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/prawirdani/golang-restapi/internal/throttle"
+	"github.com/prawirdani/golang-restapi/internal/ports/throttle"
 	"github.com/redis/go-redis/v9"
 )
 

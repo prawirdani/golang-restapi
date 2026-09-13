@@ -16,9 +16,9 @@ import (
 	"github.com/prawirdani/golang-restapi/internal/audit"
 	"github.com/prawirdani/golang-restapi/internal/auth"
 	"github.com/prawirdani/golang-restapi/internal/auth/mocks"
+	"github.com/prawirdani/golang-restapi/internal/ports/throttle"
 	"github.com/prawirdani/golang-restapi/internal/rbac"
 	sharedMocks "github.com/prawirdani/golang-restapi/internal/testing/mocks"
-	"github.com/prawirdani/golang-restapi/internal/throttle"
 	"github.com/prawirdani/golang-restapi/internal/user"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )

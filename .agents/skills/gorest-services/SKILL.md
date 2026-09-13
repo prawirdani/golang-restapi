@@ -41,7 +41,7 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
    ```
    Never reuse the request `ctx` in a goroutine that outlives the request (see `asyncDeleteImage`, `user/service.go:156-167`).
 
-6. **Throttle before expensive work:** `s.throttler.TryAcquire(ctx, fmt.Sprintf("recover-password:%s", inp.Email), PasswordRecoveryThrottledTTL)`; on `!result.Allowed` return the throttled error `ErrPasswordRecoveryThrottled.WithDetails(result)`; on throttler error, propagate the error rather than guessing. (Check `internal/throttle` for the interface contract.)
+6. **Throttle before expensive work:** `s.throttler.TryAcquire(ctx, fmt.Sprintf("recover-password:%s", inp.Email), PasswordRecoveryThrottledTTL)`; on `!result.Allowed` return the throttled error `ErrPasswordRecoveryThrottled.WithDetails(result)`; on throttler error, propagate the error rather than guessing. (Check `internal/ports/throttle` for the interface contract.)
 
 7. **Errors bubble up unchanged** — services return the domain error from repos/helpers; only log where context is added (`log.ErrorCtx(ctx, "...", err)` before returning is optional, avoid log-and-return pairs).
 
@@ -60,5 +60,5 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
 - `internal/auth/service.go` — Transact, throttling, post-commit mailer
 - `internal/user/service.go` — validation, storage swap + async cleanup
 - `internal/user/model.go` / `gender.go` — nullable + Validate patterns
-- `internal/throttle/throttle.go` — Throttler contract
+- `internal/ports/throttle/throttle.go` — Throttler contract
 - `pkg/log/context.go` — logger snapshots (`log.GetFromContext`)

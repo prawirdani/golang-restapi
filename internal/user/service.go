@@ -9,9 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/internal/audit"
+	"github.com/prawirdani/golang-restapi/internal/ports/repository"
+	"github.com/prawirdani/golang-restapi/internal/ports/storage"
 	"github.com/prawirdani/golang-restapi/internal/rbac"
-	"github.com/prawirdani/golang-restapi/internal/repository"
-	"github.com/prawirdani/golang-restapi/internal/storage"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 

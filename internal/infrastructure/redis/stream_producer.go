@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/prawirdani/golang-restapi/internal/messaging"
+	"github.com/prawirdani/golang-restapi/internal/ports/messaging"
 	"github.com/redis/go-redis/v9"
 )
 
