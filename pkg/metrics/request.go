@@ -1,38 +1,43 @@
 package metrics
 
 import (
-	"net/http"
 	"strconv"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	"github.com/gofiber/fiber/v3"
 )
 
-// InstrumentHandler is Prometheus metrics instrumentation middleware
-func (m *Metrics) InstrumentHandler(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// InstrumentHandler is a Fiber middleware that records Prometheus request
+// metrics (duration + count) labelled by route template, method, and status.
+//
+// resolveStatus maps a handler-returned error to the HTTP status the app's
+// ErrorHandler will send. It is required because Fiber runs the ErrorHandler
+// only after the middleware chain unwinds, so c.Response().StatusCode() is not
+// yet the final status when a handler returned an error.
+func (m *Metrics) InstrumentHandler(resolveStatus func(error) int) fiber.Handler {
+	return func(c fiber.Ctx) error {
 		start := time.Now()
-		// M6/L6: chi's wrapper preserves optional interfaces (Flusher, Hijacker,
-		// ReaderFrom) that a naive struct embedding drops, and exposes
-		// Status()/BytesWritten() for the metrics.
-		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
-		defer func() {
-			// Use the chi route template (e.g. "/users/{id}") rather than the raw
-			// URL path to keep label cardinality bounded. An unmatched route yields
-			// an empty pattern, which we bucket as "unknown".
-			path := chi.RouteContext(r.Context()).RoutePattern()
-			if path == "" {
-				path = "unknown"
-			}
-			duration := time.Since(start).Seconds()
-			status := ww.Status()
-			if status == 0 { // handler never wrote a header
-				status = http.StatusOK
-			}
-			m.ReqDuration.WithLabelValues(path, r.Method, strconv.Itoa(status)).Observe(duration)
-			m.ReqCounter.WithLabelValues(path, r.Method, strconv.Itoa(status)).Inc()
-		}()
-		next.ServeHTTP(ww, r)
-	})
+
+		chainErr := c.Next()
+
+		status := c.Response().StatusCode()
+		if chainErr != nil {
+			status = resolveStatus(chainErr)
+		}
+
+		// Use the matched route template (e.g. "/users/:id") rather than the raw
+		// path to keep label cardinality bounded. Fiber reports "/" for unmatched
+		// (404) requests, which is itself a fixed low-cardinality label.
+		path := "unknown"
+		if r := c.Route(); r != nil && r.Path != "" {
+			path = r.Path
+		}
+
+		duration := time.Since(start).Seconds()
+		statusStr := strconv.Itoa(status)
+		m.ReqDuration.WithLabelValues(path, c.Method(), statusStr).Observe(duration)
+		m.ReqCounter.WithLabelValues(path, c.Method(), statusStr).Inc()
+
+		return chainErr
+	}
 }

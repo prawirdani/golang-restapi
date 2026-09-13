@@ -8,34 +8,35 @@ import (
 )
 
 type Metrics struct {
-	Port        int
 	Info        *prometheus.GaugeVec
 	ReqDuration *prometheus.HistogramVec
 	ReqCounter  *prometheus.CounterVec
 }
 
-func Init(version, env string, exporterPort int) *Metrics {
+func Init(version, env string) *Metrics {
 	m := &Metrics{
-		Port: exporterPort,
 		Info: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "app",
 				Name:      "info",
 				Help:      "Application Information",
-			}, []string{"version", "environment"}),
+			}, []string{"version", "environment"},
+		),
 		ReqDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "app",
 				Name:      "request_duration",
 				Help:      "Request duration in seconds",
 				Buckets:   prometheus.DefBuckets,
-			}, []string{"path", "method", "status_code"}),
+			}, []string{"path", "method", "status_code"},
+		),
 		ReqCounter: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "app",
 				Name:      "request_total",
 				Help:      "Total number of requests",
-			}, []string{"path", "method", "status_code"}),
+			}, []string{"path", "method", "status_code"},
+		),
 	}
 	m.Info.WithLabelValues(version, env).Set(1)
 

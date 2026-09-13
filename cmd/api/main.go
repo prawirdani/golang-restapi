@@ -81,12 +81,16 @@ func main() {
 	defer cancel()
 
 	done := make(chan error, 1)
-	go func() { done <- server.Shutdown() }()
+	go func() { done <- server.Shutdown(ctx) }()
 
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			log.Error("Server shutdown error", err)
+			return
+		}
 		log.Info("Server shutdown gracefully")
 	case <-ctx.Done():
-		log.Info("Shutdown timed out")
+		log.Error("Shutdown timed out", ctx.Err())
 	}
 }

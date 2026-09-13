@@ -1,60 +1,82 @@
 package metrics
 
 import (
-	"context"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/gofiber/fiber/v3"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// serve routes a request through a chi router wrapped by the instrument
-// middleware, so RoutePattern() is populated when the deferred metric read runs.
-func serve(m *Metrics, method, target string) {
-	r := chi.NewRouter()
-	r.Use(m.InstrumentHandler)
-	r.Get("/users/{id}", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-
-	req := httptest.NewRequest(method, target, nil)
-	r.ServeHTTP(httptest.NewRecorder(), req)
+// resolveStatus mirrors Fiber's default error mapping: a *fiber.Error carries
+// its own code, anything else is a 500.
+func resolveStatus(err error) int {
+	if fe, ok := err.(*fiber.Error); ok {
+		return fe.Code
+	}
+	return fiber.StatusInternalServerError
 }
 
-func TestInstrumentHandler_UsesRoutePattern(t *testing.T) {
+// newTestApp wires the instrument middleware into a Fiber app with a couple of
+// routes so route templates and error statuses can be exercised.
+func newTestApp(m *Metrics) *fiber.App {
+	app := fiber.New()
+	app.Use(m.InstrumentHandler(resolveStatus))
+	app.Get("/users/:id", func(c fiber.Ctx) error {
+		return c.SendStatus(http.StatusOK)
+	})
+	app.Get("/boom", func(c fiber.Ctx) error {
+		return fiber.NewError(http.StatusTeapot, "boom")
+	})
+	return app
+}
+
+func do(t *testing.T, app *fiber.App, method, target string) {
+	t.Helper()
+	req, err := http.NewRequest(method, target, nil)
+	require.NoError(t, err)
+	_, err = app.Test(req)
+	require.NoError(t, err)
+}
+
+func TestInstrumentHandler_UsesRouteTemplate(t *testing.T) {
 	m := newTestMetrics()
+	app := newTestApp(m)
 
-	serve(m, http.MethodGet, "/users/123")
-	serve(m, http.MethodGet, "/users/456")
+	do(t, app, http.MethodGet, "/users/123")
+	do(t, app, http.MethodGet, "/users/456")
 
-	// Both concrete paths collapse onto the "/users/{id}" template -> count 2,
+	// Both concrete paths collapse onto the "/users/:id" template -> count 2,
 	// proving the raw path is not used as a label (which would yield two series).
-	got := testutil.ToFloat64(m.ReqCounter.WithLabelValues("/users/{id}", http.MethodGet, "200"))
-	if got != 2 {
-		t.Fatalf("template series count = %v, want 2", got)
-	}
+	got := testutil.ToFloat64(m.ReqCounter.WithLabelValues("/users/:id", http.MethodGet, "200"))
+	assert.Equal(t, float64(2), got)
 
 	// The concrete path must NOT exist as its own series.
-	if c := testutil.ToFloat64(m.ReqCounter.WithLabelValues("/users/123", http.MethodGet, "200")); c != 0 {
-		t.Errorf("raw-path series should not exist, got %v", c)
-	}
+	raw := testutil.ToFloat64(m.ReqCounter.WithLabelValues("/users/123", http.MethodGet, "200"))
+	assert.Equal(t, float64(0), raw)
 }
 
-func TestInstrumentHandler_EmptyPatternBucketed(t *testing.T) {
+func TestInstrumentHandler_RecordsErrorStatus(t *testing.T) {
 	m := newTestMetrics()
+	app := newTestApp(m)
 
-	// Drive the middleware with a chi RouteContext present but no matched pattern
-	// (RoutePattern() == "") to exercise the "unknown" fallback branch directly.
-	h := m.InstrumentHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
+	do(t, app, http.MethodGet, "/boom")
 
-	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, chi.NewRouteContext()))
-	h.ServeHTTP(httptest.NewRecorder(), req)
+	// Handler returned fiber.NewError(418); the status label must reflect it.
+	got := testutil.ToFloat64(m.ReqCounter.WithLabelValues("/boom", http.MethodGet, "418"))
+	assert.Equal(t, float64(1), got)
+}
 
-	got := testutil.ToFloat64(m.ReqCounter.WithLabelValues("unknown", http.MethodGet, "404"))
-	if got != 1 {
-		t.Fatalf("unknown bucket count = %v, want 1", got)
-	}
+func TestInstrumentHandler_UnmatchedRoute(t *testing.T) {
+	m := newTestMetrics()
+	app := newTestApp(m)
+
+	do(t, app, http.MethodGet, "/missing")
+
+	// Fiber reports the "/" template for an unmatched request; the error status
+	// (404) must still be captured from the returned fiber.Error.
+	got := testutil.ToFloat64(m.ReqCounter.WithLabelValues("/", http.MethodGet, "404"))
+	assert.Equal(t, float64(1), got)
 }
