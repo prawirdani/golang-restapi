@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/helmet"
 	"github.com/gofiber/fiber/v3/middleware/limiter"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
 	"github.com/prawirdani/golang-restapi/internal/audit"
@@ -69,6 +70,24 @@ func RateLimit(max int, exp time.Duration) fiber.Handler {
 		LimitReached: func(c fiber.Ctx) error {
 			return ErrRateLimit
 		},
+	})
+}
+
+// SecurityHeaders applies Fiber's helmet middleware with an API-appropriate
+// policy. HSTS is configured only in production; helmet additionally emits it
+// only on secure (TLS or proxy-forwarded) requests.
+func SecurityHeaders(isProduction bool) fiber.Handler {
+	hstsMaxAge := 0
+	if isProduction {
+		hstsMaxAge = 365 * 24 * 60 * 60 // 1 year
+	}
+
+	return helmet.New(helmet.Config{
+		XFrameOptions:         "DENY",
+		ReferrerPolicy:        "strict-origin-when-cross-origin",
+		ContentSecurityPolicy: "default-src 'none'; frame-ancestors 'none'",
+		PermissionPolicy:      "geolocation=(), microphone=(), camera=()",
+		HSTSMaxAge:            hstsMaxAge,
 	})
 }
 

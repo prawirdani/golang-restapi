@@ -118,7 +118,8 @@ func ErrInvalidParam(name string, value string) *Error {
 
 func ParseError(err error) *Error {
 	// Already normalized
-	if e, ok := err.(*Error); ok {
+	var e *Error
+	if errors.As(err, &e) {
 		return e
 	}
 

@@ -51,7 +51,7 @@ func NewSlogAdapter(production bool) *SlogAdapter {
 	return &SlogAdapter{l: logger}
 }
 
-// Addtional 2 skips to capture the correct caller frame:
+// Additional 2 skips to capture the correct caller frame:
 // Frame 3: this function
 // Frame 4: wrapper (InfoCtx, DebugCtx ...)
 
@@ -144,7 +144,6 @@ func normalizeSlogArgs(args []any) []any {
 
 	for i := 0; i < len(args); {
 		switch v := args[i].(type) {
-
 		// -------- nested group --------
 		case group:
 			out = append(out, slog.Group(v.Key, normalizeSlogArgs(v.Attrs)...))

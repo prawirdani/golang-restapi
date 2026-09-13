@@ -29,6 +29,8 @@ const (
 // Audit Actions for the auth entity. Login/logout/change-password are gated by
 // the coarse auth permissions; failure and reuse events have no gate (they
 // record refused attempts) and are always best-effort.
+//
+//nolint:gosec // G101: audit action identifiers, not credentials
 const (
 	ActionLogin           audit.Action = "auth.login"
 	ActionLoginFailed     audit.Action = "auth.login-failed"
@@ -173,7 +175,7 @@ func (s *Service) Login(
 		return nil, err
 	}
 
-	if err = s.authRepo.StoreSession(ctx, sess); err != nil {
+	if err := s.authRepo.StoreSession(ctx, sess); err != nil {
 		return nil, err
 	}
 

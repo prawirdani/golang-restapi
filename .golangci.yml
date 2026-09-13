@@ -1,0 +1,63 @@
+# golangci-lint configuration (v1 schema).
+# Curated set: correctness + security + style, tuned for this template.
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck # unchecked errors
+    - govet # stdlib vet
+    - ineffassign # ineffectual assignments
+    - staticcheck # static analysis
+    - unused # unused code
+    - bodyclose # unclosed HTTP response bodies
+    - copyloopvar # loop variable capture
+    - durationcheck # multiply of durations
+    - errorlint # error wrapping / comparison correctness
+    - exhaustive # exhaustive switch on enums
+    - gocritic # opinionated checks
+    - gosec # security
+    - misspell # typos
+    - nilerr # return nil on non-nil error
+    - noctx # HTTP requests without context
+    - revive # style / exported docs
+    - unconvert # redundant conversions
+    - whitespace # leading/trailing whitespace
+    - gofmt # formatting
+    - goimports # import grouping
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment # noisy; struct order is intentional
+      - shadow # off by default in govet; flags intentional if-scoped shadowing
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+    disabled-checks:
+      - hugeParam # value receivers/small structs are idiomatic here
+  gosec:
+    excludes:
+      - G404 # math/rand is fine for non-crypto jitter (throttle)
+  revive:
+    rules:
+      - name: package-comments
+      - name: exported
+      - name: error-strings
+      - name: error-return
+      - name: context-as-argument
+  exhaustive:
+    default-signifies-exhaustive: true
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+  max-issues-per-linter: 0
+  max-same-issues: 0

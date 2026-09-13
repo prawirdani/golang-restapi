@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -51,6 +52,14 @@ func (p *Postgres) Parse() error {
 	// cryptic boot error.
 	if p.MaxConns <= 0 {
 		return fmt.Errorf("DB_MAXCONNS must be set to a value > 0 (got %d)", p.MaxConns)
+	}
+	// pgxpool stores these as int32; reject values that would truncate on
+	// conversion instead of silently wrapping to a negative pool size.
+	if p.MaxConns > math.MaxInt32 {
+		return fmt.Errorf("DB_MAXCONNS must be <= %d (got %d)", math.MaxInt32, p.MaxConns)
+	}
+	if p.MinConns < 0 || p.MinConns > p.MaxConns {
+		return fmt.Errorf("DB_MINCONNS must be between 0 and DB_MAXCONNS (got %d)", p.MinConns)
 	}
 	return nil
 }

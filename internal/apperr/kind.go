@@ -5,10 +5,10 @@ package apperr
 type Kind uint8
 
 const (
-	KindValidation Kind = iota // input failed validation
-	KindNotFound               // requested resource does not exist
-	KindUnauthorized           // authentication missing or invalid
-	KindConflict               // request conflicts with current state
-	KindForbidden              // authenticated but not permitted
-	KindThrottled              // rate limit exceeded
+	KindValidation   Kind = iota // input failed validation
+	KindNotFound                 // requested resource does not exist
+	KindUnauthorized             // authentication missing or invalid
+	KindConflict                 // request conflicts with current state
+	KindForbidden                // authenticated but not permitted
+	KindThrottled                // rate limit exceeded
 )

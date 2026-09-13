@@ -12,18 +12,18 @@ import (
 
 const keyPrefix = "throttle:"
 
-// RedisThrottler implements [throttle.Throttler]
-type RedisThrottler struct {
+// Throttler implements [throttle.Throttler] on Redis.
+type Throttler struct {
 	client *redis.Client
 }
 
-func NewRedisThrottler(client *redis.Client) *RedisThrottler {
-	return &RedisThrottler{
+func NewThrottler(client *redis.Client) *Throttler {
+	return &Throttler{
 		client: client,
 	}
 }
 
-func (s *RedisThrottler) TryAcquire(
+func (s *Throttler) TryAcquire(
 	ctx context.Context,
 	key string,
 	ttl time.Duration,
@@ -67,7 +67,7 @@ func (s *RedisThrottler) TryAcquire(
 	}, nil
 }
 
-func (s *RedisThrottler) Release(
+func (s *Throttler) Release(
 	ctx context.Context,
 	key string,
 ) error {

@@ -20,6 +20,10 @@ type Services struct {
 type Container struct {
 	Config   *config.Config
 	Services *Services
+
+	// Infrastructure handles kept for readiness checks and shutdown.
+	pg  *postgres.DB
+	rdb *redis.Client
 }
 
 // NewContainer initializes all dependencies
@@ -39,7 +43,7 @@ func NewContainer(
 		return nil, err
 	}
 
-	redisThrottler := redisInfra.NewRedisThrottler(rdb)
+	redisThrottler := redisInfra.NewThrottler(rdb)
 
 	// Repos init
 	userRepo := postgres.NewUserRepository(pg)
@@ -65,6 +69,8 @@ func NewContainer(
 
 	c := &Container{
 		Config: cfg,
+		pg:     pg,
+		rdb:    rdb,
 		Services: &Services{
 			UserService: userService,
 			AuthService: authSvc,

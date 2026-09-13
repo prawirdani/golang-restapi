@@ -139,6 +139,11 @@ func (db *DB) Transact(
 	return err
 }
 
+// Ping verifies connectivity to the database, used by readiness checks.
+func (db *DB) Ping(ctx context.Context) error {
+	return db.pool.Ping(ctx)
+}
+
 // Close shuts down the underlying PostgreSQL connection pool.
 func (db *DB) Close() {
 	db.pool.Close()
@@ -161,8 +166,8 @@ func New(cfg config.Postgres) (*DB, error) {
 		return nil, err
 	}
 
-	pgConf.MinConns = int32(cfg.MinConns)
-	pgConf.MaxConns = int32(cfg.MaxConns)
+	pgConf.MinConns = int32(cfg.MinConns) //nolint:gosec // G115: bounded by config validation
+	pgConf.MaxConns = int32(cfg.MaxConns) //nolint:gosec // G115: bounded by config validation
 	pgConf.MaxConnLifetime = cfg.MaxConnLifetime
 	pgConf.MaxConnIdleTime = 5 * time.Minute
 	pgConf.HealthCheckPeriod = 1 * time.Minute

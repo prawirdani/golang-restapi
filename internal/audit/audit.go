@@ -42,7 +42,6 @@ func (e *Entry) FillActorMeta(ctx context.Context) {
 		e.Meta["request_id"] = v.RequestID
 		e.Meta["ip_addr"] = v.IP
 		e.Meta["user_agent"] = v.UserAgent
-
 	}
 
 	if v, _ := rbac.GetContext(ctx); v != nil {

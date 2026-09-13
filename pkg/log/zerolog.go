@@ -120,7 +120,6 @@ func (z *ZerologAdapter) With(args ...any) Logger {
 
 	for i := 0; i < len(args); {
 		switch v := args[i].(type) {
-
 		case group:
 			ctx = ctx.Dict(v.Key, z.buildDict(v.Attrs...))
 			i++
@@ -151,7 +150,6 @@ func (z *ZerologAdapter) addFields(event *zerolog.Event, args ...any) *zerolog.E
 
 	for i := 0; i < len(args); {
 		switch v := args[i].(type) {
-
 		// -------- nested group --------
 		case group:
 			event = event.Dict(v.Key, z.buildDict(v.Attrs...))
@@ -230,7 +228,6 @@ func (z *ZerologAdapter) buildDict(attrs ...any) *zerolog.Event {
 
 	for i := 0; i < len(attrs); {
 		switch v := attrs[i].(type) {
-
 		case group:
 			d = d.Dict(v.Key, z.buildDict(v.Attrs...))
 			i++

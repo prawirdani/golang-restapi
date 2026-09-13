@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -34,10 +35,11 @@ func TestMetricsMiddleware_ResolvesDomainErrorStatus(t *testing.T) {
 	app.Use(m.InstrumentHandler(func(err error) int { return ParseError(err).Status() }))
 	app.Get("/secure", func(c fiber.Ctx) error { return ErrReqUnauthorized })
 
-	req, err := http.NewRequest(http.MethodGet, "/secure", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/secure", nil)
 	require.NoError(t, err)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
 	got := testutil.ToFloat64(m.ReqCounter.WithLabelValues("/secure", http.MethodGet, "401"))

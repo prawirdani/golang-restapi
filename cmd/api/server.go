@@ -44,6 +44,7 @@ func NewServer(container *Container, onPostShutdown func(error) error) (*Server,
 	app.Use(m.InstrumentHandler(func(err error) int {
 		return http.ParseError(err).Status()
 	}))
+	app.Use(http.SecurityHeaders(container.Config.IsProduction()))
 	app.Use(logger.New())
 	app.Use(requestid.New())
 	app.Use(http.AuditContext())
@@ -64,13 +65,6 @@ func NewServer(container *Container, onPostShutdown func(error) error) (*Server,
 		MaxAge: 600,
 	}))
 
-	app.Get("/healthz", func(c fiber.Ctx) error {
-		log.DebugCtx(c.Context(), "Hello")
-		return c.JSON(http.Body{
-			Message: "services up and running",
-		})
-	})
-
 	var metricsApp *fiber.App
 	if container.Config.IsProduction() {
 		metricsApp = fiber.New()
@@ -82,6 +76,9 @@ func NewServer(container *Container, onPostShutdown func(error) error) (*Server,
 		app:        app,
 		metricsApp: metricsApp,
 	}
+
+	// Health check: verifies the server's dependencies are reachable.
+	app.Get("/healthz", svr.health)
 
 	// Setup API routes
 	svr.setupHandlers()
@@ -117,6 +114,32 @@ func (s *Server) Start() error {
 // stalled scrape must never delay the API's shutdown.
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.app.ShutdownWithContext(ctx)
+}
+
+// health reports service health, including whether dependencies are reachable.
+// A failing dependency returns 503 so load balancers stop routing here until it
+// recovers. Note: because this doubles as a probe, a sustained dependency
+// outage will also fail liveness checks — split the endpoints if the platform
+// restarts unhealthy instances.
+func (s *Server) health(c fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
+	defer cancel()
+
+	deps := make(map[string]string)
+	if err := s.container.pg.Ping(ctx); err != nil {
+		deps["postgres"] = err.Error()
+	}
+	if err := s.container.rdb.Ping(ctx).Err(); err != nil {
+		deps["redis"] = err.Error()
+	}
+
+	if len(deps) > 0 {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+			"status":       "unavailable",
+			"dependencies": deps,
+		})
+	}
+	return c.JSON(fiber.Map{"status": "ok"})
 }
 
 // setupHandlers initializes and registers all API handlers.

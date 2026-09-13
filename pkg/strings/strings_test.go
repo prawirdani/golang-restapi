@@ -74,7 +74,7 @@ func TestContains(t *testing.T) {
 }
 
 func TestRefine(t *testing.T) {
-	trim := func(s string) string { return TrimSpaces(s) }
+	trim := TrimSpaces
 	upper := func(s string) string {
 		result := make([]byte, len(s))
 		for i := 0; i < len(s); i++ {

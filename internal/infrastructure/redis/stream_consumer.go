@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"runtime/debug"
@@ -89,7 +90,7 @@ func (c *StreamConsumer[T]) Start(ctx context.Context) error {
 			Block:    c.cfg.Block,
 		}).Result()
 		if err != nil {
-			if err != redis.Nil {
+			if !errors.Is(err, redis.Nil) {
 				log.ErrorCtx(ctx, "XReadGroup error", err)
 				sleep(ctx, 100*time.Millisecond)
 			}
@@ -163,7 +164,7 @@ func (c *StreamConsumer[T]) handle(ctx context.Context, m redis.XMessage, sem ch
 	// SetNX is deprecated in go-redis v9 — use SET ... NX via SetArgs instead.
 	// redis.Nil means the key already existed (duplicate delivery); any other
 	// error is a real failure (process anyway — at-least-once semantics).
-	if _, err := c.rdb.SetArgs(ctx, key, "1", redis.SetArgs{Mode: "NX", TTL: dedupTTL}).Result(); err == redis.Nil {
+	if _, err := c.rdb.SetArgs(ctx, key, "1", redis.SetArgs{Mode: "NX", TTL: dedupTTL}).Result(); errors.Is(err, redis.Nil) {
 		log.DebugCtx(ctx, "Duplicate delivery, already processed, acking", "id", env.ID)
 		c.ack(ctx, m.ID)
 		return

@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -310,7 +311,7 @@ func detectMIME(f *ParsedFile) (string, error) {
 	// Read first 512 bytes for MIME detection
 	buf := make([]byte, 512)
 	n, err := f.Read(buf)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return "", err
 	}
 

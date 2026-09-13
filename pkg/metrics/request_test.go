@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -13,7 +15,8 @@ import (
 // resolveStatus mirrors Fiber's default error mapping: a *fiber.Error carries
 // its own code, anything else is a 500.
 func resolveStatus(err error) int {
-	if fe, ok := err.(*fiber.Error); ok {
+	var fe *fiber.Error
+	if errors.As(err, &fe) {
 		return fe.Code
 	}
 	return fiber.StatusInternalServerError
@@ -35,10 +38,11 @@ func newTestApp(m *Metrics) *fiber.App {
 
 func do(t *testing.T, app *fiber.App, method, target string) {
 	t.Helper()
-	req, err := http.NewRequest(method, target, nil)
+	req, err := http.NewRequestWithContext(context.Background(), method, target, nil)
 	require.NoError(t, err)
-	_, err = app.Test(req)
+	resp, err := app.Test(req)
 	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
 }
 
 func TestInstrumentHandler_UsesRouteTemplate(t *testing.T) {

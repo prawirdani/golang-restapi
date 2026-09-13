@@ -10,10 +10,10 @@ import (
 
 func TestCreateUserInput_Validate(t *testing.T) {
 	tests := []struct {
-		title      string
-		input      CreateUserInput
-		wantErr    bool
-		errField   string
+		title    string
+		input    CreateUserInput
+		wantErr  bool
+		errField string
 	}{
 		{
 			title: "Valid input",
