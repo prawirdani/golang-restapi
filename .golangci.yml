@@ -1,63 +1,90 @@
-# golangci-lint configuration (v1 schema).
+# golangci-lint configuration (v2 schema).
 # Curated set: correctness + security + style, tuned for this template.
+#
+# NOTE: this file uses the v2 schema and REQUIRES golangci-lint v2.x.
+# Install/upgrade with:
+#   go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+version: "2"
+
 run:
-  timeout: 5m
   tests: true
 
 linters:
-  disable-all: true
+  default: none
   enable:
-    - errcheck # unchecked errors
-    - govet # stdlib vet
-    - ineffassign # ineffectual assignments
-    - staticcheck # static analysis
-    - unused # unused code
-    - bodyclose # unclosed HTTP response bodies
-    - copyloopvar # loop variable capture
-    - durationcheck # multiply of durations
-    - errorlint # error wrapping / comparison correctness
-    - exhaustive # exhaustive switch on enums
-    - gocritic # opinionated checks
-    - gosec # security
-    - misspell # typos
-    - nilerr # return nil on non-nil error
-    - noctx # HTTP requests without context
-    - revive # style / exported docs
-    - unconvert # redundant conversions
-    - whitespace # leading/trailing whitespace
-    - gofmt # formatting
-    - goimports # import grouping
-
-linters-settings:
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment # noisy; struct order is intentional
-      - shadow # off by default in govet; flags intentional if-scoped shadowing
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-    disabled-checks:
-      - hugeParam # value receivers/small structs are idiomatic here
-  gosec:
-    excludes:
-      - G404 # math/rand is fine for non-crypto jitter (throttle)
-  revive:
+    # correctness
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - copyloopvar
+    - durationcheck
+    - errorlint
+    - nilerr
+    - noctx
+    - unconvert
+    # security
+    - gosec
+    # style
+    - exhaustive
+    - gocritic
+    - misspell
+    - revive
+    - whitespace
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      disabled-checks:
+        - hugeParam # value receivers on small structs are idiomatic here
+    gosec:
+      excludes:
+        - G404 # math/rand is fine for non-crypto throttle jitter
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # noisy; struct order is intentional
+        - shadow # flags intentional if-scoped err shadowing
+    revive:
+      rules:
+        - name: package-comments
+        - name: exported
+        - name: error-strings
+        - name: error-return
+        - name: context-as-argument
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: package-comments
-      - name: exported
-      - name: error-strings
-      - name: error-return
-      - name: context-as-argument
-  exhaustive:
-    default-signifies-exhaustive: true
+      - linters:
+          - errcheck
+          - gosec
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 
 issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-        - gosec
   max-issues-per-linter: 0
   max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
