@@ -6,12 +6,15 @@
 package auth
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/internal/apperr"
+	"github.com/prawirdani/golang-restapi/internal/audit"
 	"github.com/prawirdani/golang-restapi/pkg/nullable"
 )
 
@@ -36,7 +39,7 @@ type Session struct {
 
 // NewSession creates a new session with a generated refresh token
 // Returns session struct (with hashed token) and raw token for client
-func NewSession(userID uuid.UUID, userAgent string, ip net.IP, ttl time.Duration) (*Session, string, error) {
+func NewSession(ctx context.Context, userID uuid.UUID, ttl time.Duration) (*Session, string, error) {
 	if ttl <= 0 {
 		return nil, "", ErrSessionInvalidTTL
 	}
@@ -58,15 +61,20 @@ func NewSession(userID uuid.UUID, userAgent string, ip net.IP, ttl time.Duration
 	// Hash the token for secure DB storage
 	refreshTokenHash := HashStr(refreshToken)
 
+	auditCtx, err := audit.GetContext(ctx)
+	if err != nil {
+		return nil, "", fmt.Errorf("new session: %w", err)
+	}
+
 	now := time.Now()
 	sess := Session{
 		ID:               sessID,
 		UserID:           userID,
-		UserAgent:        userAgent,
 		RefreshTokenHash: refreshTokenHash,
 		ExpiresAt:        now.Add(ttl),
 		AccessedAt:       now,
-		IPAddr:           ip,
+		IPAddr:           auditCtx.IP,
+		UserAgent:        auditCtx.UserAgent,
 	}
 
 	return &sess, refreshToken, nil
@@ -84,17 +92,22 @@ func (s *Session) Revoke() {
 
 // Rotate generates a new refresh token, updates the session hash,
 // and returns the new raw token for the client
-func (s *Session) Rotate(meta SessionMeta) (string, error) {
+func (s *Session) Rotate(ctx context.Context) (string, error) {
 	newToken, err := generateRefreshToken()
 	if err != nil {
 		return "", err
 	}
 
+	auditCtx, err := audit.GetContext(ctx)
+	if err != nil {
+		return "", fmt.Errorf("rotate session: %w", err)
+	}
+
 	// Update hash, access time and meta
 	s.RefreshTokenHash = HashStr(newToken)
 	s.AccessedAt = time.Now()
-	s.IPAddr = meta.IPAddr
-	s.UserAgent = meta.UserAgent
+	s.IPAddr = auditCtx.IP
+	s.UserAgent = auditCtx.UserAgent
 
 	return newToken, nil
 }

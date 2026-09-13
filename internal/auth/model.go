@@ -6,19 +6,12 @@
 package auth
 
 import (
-	"net"
 	"time"
 )
-
-type SessionMeta struct {
-	UserAgent string
-	IPAddr    net.IP
-}
 
 type LoginInput struct {
 	Email    string `json:"email"    validate:"required,email"`
 	Password string `json:"password" validate:"required"`
-	Meta     SessionMeta
 }
 
 type RecoverPasswordInput struct {

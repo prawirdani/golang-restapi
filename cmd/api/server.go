@@ -35,8 +35,7 @@ func NewServer(container *Container, onPostShutdown func(error) error) (*Server,
 	app.Use(recoverer.New())
 	app.Use(logger.New())
 	app.Use(requestid.New())
-	app.Use(http.RequestLoggerContext())
-	app.Use(http.RequestMeta())
+	app.Use(http.AuditContext())
 	app.Use(compress.New())
 	app.Use(etag.New())
 	app.Use(cors.New(cors.Config{

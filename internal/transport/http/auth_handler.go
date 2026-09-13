@@ -2,7 +2,6 @@ package http
 
 import (
 	"errors"
-	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -79,8 +78,6 @@ func (h *AuthHandler) login(c fiber.Ctx) error {
 	if err := BindValidateJSON(c, &reqBody); err != nil {
 		return err
 	}
-	reqBody.Meta.UserAgent = c.UserAgent()
-	reqBody.Meta.IPAddr = net.ParseIP(c.IP())
 
 	tokens, err := h.authService.Login(ctx, reqBody)
 	if err != nil {
@@ -133,12 +130,8 @@ func (h *AuthHandler) refreshAccessToken(c fiber.Ctx) error {
 	if refreshToken == "" {
 		return ErrReqUnauthorized
 	}
-	meta := auth.SessionMeta{
-		UserAgent: c.UserAgent(),
-		IPAddr:    net.ParseIP(c.IP()),
-	}
 
-	tokens, err := h.authService.RefreshAccessToken(ctx, refreshToken, meta)
+	tokens, err := h.authService.RefreshAccessToken(ctx, refreshToken)
 	if err != nil {
 		log.ErrorCtx(ctx, "Failed to refresh access token", err)
 		return err

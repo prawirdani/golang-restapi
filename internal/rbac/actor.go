@@ -31,6 +31,12 @@ func WithContext(ctx context.Context, value Context) context.Context {
 	return context.WithValue(ctx, key, value)
 }
 
+func SystemContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, key, Context{
+		Actor: Actor{Role: RoleSystem},
+	})
+}
+
 // GetContext retrieves the rbac context from the context.
 // Returns [ErrCtxNotFound] when rbac context has been injected (e.g. unauthenticated flows).
 func GetContext(ctx context.Context) (*Context, error) {

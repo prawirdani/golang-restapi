@@ -1,6 +1,7 @@
 package http
 
 import (
+	"net"
 	"strings"
 	"time"
 
@@ -71,25 +72,21 @@ func RateLimit(max int, exp time.Duration) fiber.Handler {
 	})
 }
 
-// RequestLoggerContext retrieve request_id from fiber context and inject it to app logger context
-func RequestLoggerContext() fiber.Handler {
+func AuditContext() fiber.Handler {
 	return func(c fiber.Ctx) error {
 		id := requestid.FromContext(c)
+		ctx := audit.WithContext(
+			c.Context(), audit.Context{
+				IP:        net.ParseIP(c.IP()),
+				RequestID: id,
+				UserAgent: c.UserAgent(),
+			},
+		)
 
-		ctx := log.WithContext(c.Context(), "request_id", id)
+		// injecting request id to log context
+		ctx = log.WithContext(ctx, "request_id", id)
 		c.SetContext(ctx)
 
-		return c.Next()
-	}
-}
-
-func RequestMeta() fiber.Handler {
-	return func(c fiber.Ctx) error {
-		meta := audit.RequestMeta{
-			IP:        c.IP(),
-			UserAgent: c.UserAgent(),
-		}
-		c.SetContext(audit.WithRequestMeta(c.Context(), meta))
 		return c.Next()
 	}
 }

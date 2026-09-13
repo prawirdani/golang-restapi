@@ -13,6 +13,7 @@ import (
 
 	"github.com/prawirdani/golang-restapi/config"
 	"github.com/prawirdani/golang-restapi/internal/apperr"
+	"github.com/prawirdani/golang-restapi/internal/audit"
 	"github.com/prawirdani/golang-restapi/internal/auth"
 	"github.com/prawirdani/golang-restapi/internal/auth/mocks"
 	"github.com/prawirdani/golang-restapi/internal/rbac"
@@ -24,6 +25,16 @@ import (
 
 func init() {
 	log.SetLogger(log.EmptyLog)
+}
+
+// auditCtx returns a context carrying audit request metadata, required by
+// NewSession/Rotate to stamp the session's IP and user-agent.
+func auditCtx() context.Context {
+	return audit.WithContext(context.Background(), audit.Context{
+		IP:        net.ParseIP("203.0.113.5"),
+		UserAgent: "test-agent",
+		RequestID: "test-request",
+	})
 }
 
 func TestService_Register(t *testing.T) {
@@ -67,13 +78,12 @@ func TestService_Register(t *testing.T) {
 
 func TestService_Login(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := auditCtx()
 		f := setupTestFixture(t)
 
 		input := auth.LoginInput{
 			Email:    "john@example.com",
 			Password: "password123",
-			Meta:     auth.SessionMeta{UserAgent: "test-agent"},
 		}
 
 		hashedPassword, err := auth.HashPassword(input.Password)
@@ -145,14 +155,13 @@ func TestService_Login(t *testing.T) {
 
 func TestService_RefreshAccessToken(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := auditCtx()
 		f := setupTestFixture(t)
 
-		session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", net.ParseIP("203.0.113.5"), f.cfg.SessionTTL)
+		session, refreshToken, err := auth.NewSession(ctx, uuid.New(), f.cfg.SessionTTL)
 		require.NoError(t, err)
 
 		prevRefreshToken := refreshToken
-		meta := auth.SessionMeta{UserAgent: "new-agent", IPAddr: net.ParseIP("198.51.100.7")}
 
 		f.transactor.EXPECT().
 			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
@@ -168,7 +177,7 @@ func TestService_RefreshAccessToken(t *testing.T) {
 				return fn(ctx)
 			})
 
-		tokenPair, err := f.service.RefreshAccessToken(ctx, prevRefreshToken, meta)
+		tokenPair, err := f.service.RefreshAccessToken(ctx, prevRefreshToken)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, tokenPair)
@@ -176,10 +185,10 @@ func TestService_RefreshAccessToken(t *testing.T) {
 	})
 
 	t.Run("Session expired", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := auditCtx()
 		f := setupTestFixture(t)
 
-		session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", net.ParseIP("203.0.113.5"), f.cfg.SessionTTL)
+		session, refreshToken, err := auth.NewSession(ctx, uuid.New(), f.cfg.SessionTTL)
 		require.NoError(t, err)
 		session.ExpiresAt = time.Now().Add(-time.Hour) // Set to past
 
@@ -192,7 +201,7 @@ func TestService_RefreshAccessToken(t *testing.T) {
 				return fn(ctx)
 			})
 
-		tokenPair, err := f.service.RefreshAccessToken(ctx, refreshToken, auth.SessionMeta{})
+		tokenPair, err := f.service.RefreshAccessToken(ctx, refreshToken)
 
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, auth.ErrSessionInvalid)
@@ -202,10 +211,10 @@ func TestService_RefreshAccessToken(t *testing.T) {
 
 func TestService_Logout(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := auditCtx()
 		f := setupTestFixture(t)
 
-		session, _, err := auth.NewSession(uuid.New(), "test-agent", net.ParseIP("203.0.113.5"), f.cfg.SessionTTL)
+		session, _, err := auth.NewSession(ctx, uuid.New(), f.cfg.SessionTTL)
 		require.NoError(t, err)
 
 		f.transactor.EXPECT().
@@ -221,11 +230,11 @@ func TestService_Logout(t *testing.T) {
 	})
 
 	t.Run("Session already expired", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := auditCtx()
 		f := setupTestFixture(t)
 
 		// Create valid session and manually set it as expired
-		session, _, err := auth.NewSession(uuid.New(), "test-agent", net.ParseIP("203.0.113.5"), f.cfg.SessionTTL)
+		session, _, err := auth.NewSession(ctx, uuid.New(), f.cfg.SessionTTL)
 		require.NoError(t, err)
 		session.ExpiresAt = time.Now().Add(-time.Hour) // Set to past
 
@@ -585,10 +594,10 @@ func TestService_GetPasswordRecoveryToken(t *testing.T) {
 }
 
 func TestService_RefreshAccessToken_SessionRevoked(t *testing.T) {
-	ctx := context.Background()
+	ctx := auditCtx()
 	f := setupTestFixture(t)
 
-	session, refreshToken, err := auth.NewSession(uuid.New(), "test-agent", net.ParseIP("203.0.113.5"), f.cfg.SessionTTL)
+	session, refreshToken, err := auth.NewSession(ctx, uuid.New(), f.cfg.SessionTTL)
 	require.NoError(t, err)
 	session.RevokedAt.Set(time.Now(), false) // Revoke the session
 
@@ -601,7 +610,7 @@ func TestService_RefreshAccessToken_SessionRevoked(t *testing.T) {
 			return fn(ctx)
 		})
 
-	tokenPair, err := f.service.RefreshAccessToken(ctx, refreshToken, auth.SessionMeta{})
+	tokenPair, err := f.service.RefreshAccessToken(ctx, refreshToken)
 
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, auth.ErrSessionInvalid)

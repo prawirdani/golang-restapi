@@ -24,11 +24,10 @@ func TestLoginInput_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			title: "Valid input with session meta",
+			title: "Valid input with all fields",
 			input: LoginInput{
-				Email:    "john@example.com",
+				Email:    "jane@example.com",
 				Password: "secret123",
-				Meta:     SessionMeta{UserAgent: "Mozilla/5.0"},
 			},
 			wantErr: false,
 		},

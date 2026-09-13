@@ -163,12 +163,7 @@ func (s *Service) Login(
 		return nil, err
 	}
 
-	sess, refreshToken, err := NewSession(
-		usr.ID,
-		inp.Meta.UserAgent,
-		inp.Meta.IPAddr,
-		s.cfg.SessionTTL,
-	)
+	sess, refreshToken, err := NewSession(ctx, usr.ID, s.cfg.SessionTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +199,6 @@ func (s *Service) Login(
 func (s *Service) RefreshAccessToken(
 	ctx context.Context,
 	refreshToken string,
-	meta SessionMeta,
 ) (*TokenPair, error) {
 	sum := HashStr(refreshToken)
 
@@ -247,7 +241,7 @@ func (s *Service) RefreshAccessToken(
 		tokenPair.AccessToken = newAccessToken
 
 		// Rotate refreshToken
-		newRefreshToken, err := sess.Rotate(meta)
+		newRefreshToken, err := sess.Rotate(ctx)
 		if err != nil {
 			return err
 		}
