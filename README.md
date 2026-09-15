@@ -45,6 +45,9 @@ Config is loaded once from `.env` (see `.env.example`) and **validated at startu
 - `DB_MAXCONNS` — required, must be > 0 (and `DB_MINCONNS` in `[0, DB_MAXCONNS]`)
 - `CORS_CREDENTIALS=true` requires explicit valid `CORS_ORIGINS` (no `*`)
 - `AUTH_PASSWORD_RECOVERY_TOKEN_TTL` — defaults to 5m (short window limits `?token=` URL exposure)
+- `AUTH_REGISTRATION_TOKEN_TTL` — defaults to 15m (same reasoning for the registration link)
+- `APP_INTERNAL_MODE` — when true, registration becomes admin-only (`auth.register-user` permission) instead of public
+- `AUTH_COMPLETE_REGISTRATION_FORM_ENDPOINT` — web UI that hosts the password-creation form
 - `TRUSTED_PROXIES` — comma-separated CIDRs/IPs of reverse proxies whose `X-Forwarded-For`/`X-Real-IP` are trusted for client IP resolution; when empty, only the direct peer IP is used (forwarded headers are ignored)
 
 Run `make migration:up` after pulling — migrations are additive only.
@@ -62,11 +65,21 @@ The auth system uses a split-token design with JWT access tokens and opaque refr
 
 - **Refresh Token Rotation**: Every token refresh generates a new access token and rotates the refresh token. Old token hash is replaced with new hash in the same transaction, preventing replay attacks. Refresh attempts against a revoked session are logged and audited as a reuse signal.
 
-- **Session Management**: Sessions are server-side records in `sessions` table with: `user_id`, `refresh_token_hash`, `ip_addr`, `user_agent`, `created_at`, `accessed_at`, `expires_at`, `revoked_at`. Refresh re-captures the client IP/user-agent. Sessions auto-expire and can be manually revoked. Expired sessions are pruned on login. **Password reset or change revokes all sessions for the user** — every device is logged out.
+- **Session Management**: Sessions are server-side records in `sessions` table with: `user_id`, `refresh_token_hash`, `ip_addr`, `user_agent`, `created_at`, `accessed_at`, `expires_at`, `revoked_at`. Refresh re-captures the client IP/user-agent. Sessions auto-expire (TTL) and can be manually revoked. **Password reset or change revokes all sessions for the user** — every device is logged out.
 
 - **Rate Limiting**: Fiber in-process limiter (per IP) — 20 req/min globally in production, 5 req/min on `/api/auth/login` and `/api/auth/password/recover`. Password recovery additionally uses a Redis-backed per-email throttle (30s) so it holds across instances. Login verifies a dummy bcrypt hash on unknown emails to equalize timing (no account enumeration via login).
 
 - **Passwords**: bcrypt cost 12; length validated 8–72 bytes (bcrypt truncates beyond 72). Reset tokens are 256-bit, single-use, and expire after a short TTL (default 5m, `AUTH_PASSWORD_RECOVERY_TOKEN_TTL`).
+
+#### Registration (invitation)
+
+Registration is invitation-based — no account exists until the invitee sets a password.
+
+Flow: `POST /api/auth/register` (name + email) → rejects if the email is already registered → stores a single-use token (hashed, default 15m TTL via `AUTH_REGISTRATION_TOKEN_TTL`) → publishes to Redis Stream → worker emails the completion link → `POST /api/auth/register/complete` (token + password) creates the user and marks the token used, atomically.
+
+- `GET /api/auth/register/:token` exposes token status (expiry / used) so the completion form can render it.
+- When `APP_INTERNAL_MODE=true`, `POST /api/auth/register` requires the `auth.register-user` permission (admin/system only) instead of being public.
+- The created user gets the default `user` role and has `email_verified_at` set (completing the invite proves the email).
 
 #### Password Recovery
 
@@ -80,7 +93,7 @@ Redis Stream with consumer groups. Each stream uses a consumer group with pendin
 stream → consumer group → pending entries (PEL) → ack → DLQ stream after MaxRetry
 ```
 
-The worker consumes messages via `go-redis`. Auth publishes password recovery emails asynchronously to decouple SMTP from HTTP response time. Reliability features:
+The worker consumes messages via `go-redis`. Auth publishes password-recovery (`email.password_recovery`) and registration-completion (`email.user_registration`) emails asynchronously to decouple SMTP from HTTP response time. Reliability features:
 
 - **Idempotency**: each envelope carries an `ID`; a `SET ... NX` dedup key (`dedup:<stream>:<id>`) prevents duplicate emails on redelivery (at-least-once without duplicates).
 - **Panic isolation**: message handler panics are recovered and routed to the DLQ — one poison message can't crash the worker.
@@ -95,7 +108,9 @@ Public:
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| POST | `/api/auth/register` | create account |
+| POST | `/api/auth/register` | start invitation (admin-only when `APP_INTERNAL_MODE`) |
+| POST | `/api/auth/register/complete` | set password, create account |
+| GET | `/api/auth/register/:token` | inspect registration token |
 | POST | `/api/auth/login` | 5 req/min per IP |
 | POST | `/api/auth/refresh` | rotate refresh token |
 | POST | `/api/auth/password/recover` | 5 req/min per IP |
@@ -131,7 +146,7 @@ State-changing actions are recorded in `audit_logs`:
 
 - **Payloads**: `prev` / `next` JSONB snapshots (password hashes are never serialized), plus a `meta` JSONB with `ip_addr`, `user_agent`, `request_id`, `session_id`, and `actor_role`.
 - **Actor**: `actor_id` (NULL for system actions) and `actor_role`.
-- **Coverage**: auth events (login, failed login, logout, password change/reset, recovery request, refresh-token reuse) and user mutations.
+- **Coverage**: auth events (register, complete-registration, login, failed login, logout, password change/reset, recovery request, refresh-token reuse) and user mutations.
 - **Atomicity**: success events are written inside the same transaction as the action; failure events (e.g. failed login) are best-effort and never block the response.
 
 ### Observability & Health

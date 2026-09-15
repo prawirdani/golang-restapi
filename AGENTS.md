@@ -87,6 +87,7 @@ err := s.transactor.Transact(ctx, func(ctx context.Context) error {
 ```
 
 **Auth invariants**
+- Registration is invitation-based: `Register` stores a single-use hashed token (no user row); `CompleteRegistration` consumes the token and creates the user atomically. Under `APP_INTERNAL_MODE`, `Register` requires `PermRegisterUser`.
 - Password reset/change revokes **all** sessions for the user (inside the tx).
 - Unknown-email login path runs a dummy bcrypt compare (`DummyVerify`) — never branch on user existence via timing.
 - Refresh attempts against a revoked session → `log.WarnCtx` reuse signal, then `ErrSessionInvalid`.
