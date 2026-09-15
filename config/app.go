@@ -11,6 +11,9 @@ type App struct {
 	Version     string
 	Port        int
 	Environment AppEnv
+	// InternalMode makes user registration admin-only (APP_INTERNAL_MODE)
+	// instead of public self-service.
+	InternalMode bool
 }
 
 func (a *App) Parse() error {
@@ -25,5 +28,12 @@ func (a *App) Parse() error {
 		}
 		a.Port = port
 	}
+
+	if val := os.Getenv("APP_INTERNAL_MODE"); val != "" {
+		if b, err := strconv.ParseBool(val); err == nil {
+			a.InternalMode = b
+		}
+	}
+
 	return nil
 }

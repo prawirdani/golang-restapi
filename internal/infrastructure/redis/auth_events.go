@@ -13,23 +13,26 @@ import (
 const (
 	// EmailPasswordRecoveryStream is the Redis stream carrying password-recovery email events.
 	EmailPasswordRecoveryStream = "email.password_recovery"
+
+	// EmailUserRegistrationStream is the Redis stream carrying user registration email events.
+	EmailUserRegistrationStream = "email.user_registration"
 )
 
-// AuthEventProducer publishes auth-related events (e.g. password recovery) to Redis streams.
+// authEventProducer publishes auth-related events (e.g. password recovery) to Redis streams.
 // It implements [auth.EventProducer].
-type AuthEventProducer struct {
+type authEventProducer struct {
 	rdb *redis.Client
 }
 
 // NewAuthEventProducer constructs an AuthEventProducer backed by the given Redis client.
-func NewAuthEventProducer(rdb *redis.Client) *AuthEventProducer {
-	return &AuthEventProducer{
+func NewAuthEventProducer(rdb *redis.Client) *authEventProducer {
+	return &authEventProducer{
 		rdb: rdb,
 	}
 }
 
 // ProducePasswordRecoveryEvent implements [auth.EventProducer].
-func (ep *AuthEventProducer) ProducePasswordRecoveryEvent(ctx context.Context, msg auth.PasswordRecoveryMessage) error {
+func (ep *authEventProducer) ProducePasswordRecoveryEvent(ctx context.Context, msg auth.PasswordRecoveryMessage) error {
 	return produceStream(
 		ctx,
 		ep.rdb,
@@ -38,9 +41,23 @@ func (ep *AuthEventProducer) ProducePasswordRecoveryEvent(ctx context.Context, m
 	)
 }
 
+// ProduceRegistrationCompletionEvent implements [auth.EventProducer].
+func (ep *authEventProducer) ProduceRegistrationCompletionEvent(
+	ctx context.Context,
+	msg auth.CompleteRegistrationMessage,
+) error {
+	return produceStream(
+		ctx,
+		ep.rdb,
+		EmailUserRegistrationStream,
+		messaging.NewEnvelope(msg),
+	)
+}
+
 // AuthEventConsumers groups the stream consumers that process auth-related events.
 type AuthEventConsumers struct {
-	PasswordRecovery Consumer
+	PasswordRecovery     Consumer
+	CompleteRegistration Consumer
 }
 
 // NewAuthEventConsumers wires the auth event stream consumers to the given worker.
@@ -67,6 +84,29 @@ func NewAuthEventConsumers(
 				env messaging.Envelope[auth.PasswordRecoveryMessage],
 			) error {
 				return wrk.SendPasswordRecoveryEmail(
+					ctx,
+					env.Payload,
+				)
+			},
+		),
+		CompleteRegistration: NewStreamConsumer(
+			rdb,
+			ConsumerStreamConfig{
+				Group:       "mailing",
+				Stream:      EmailUserRegistrationStream,
+				Consumer:    "c1m",
+				Concurrency: 5,
+				BatchSize:   5,
+				MaxRetries:  3,
+				UseDLQ:      true,
+				MinIdle:     15 * time.Second,
+				Block:       5 * time.Second,
+			},
+			func(
+				ctx context.Context,
+				env messaging.Envelope[auth.CompleteRegistrationMessage],
+			) error {
+				return wrk.SendCompleteRegistrationEmail(
 					ctx,
 					env.Payload,
 				)

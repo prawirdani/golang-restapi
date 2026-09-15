@@ -94,3 +94,60 @@ func (_c *EventProducer_ProducePasswordRecoveryEvent_Call) RunAndReturn(run func
 	_c.Call.Return(run)
 	return _c
 }
+
+// ProduceRegistrationCompletionEvent provides a mock function for the type EventProducer
+func (_mock *EventProducer) ProduceRegistrationCompletionEvent(ctx context.Context, msg auth.CompleteRegistrationMessage) error {
+	ret := _mock.Called(ctx, msg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ProduceRegistrationCompletionEvent")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, auth.CompleteRegistrationMessage) error); ok {
+		r0 = returnFunc(ctx, msg)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// EventProducer_ProduceRegistrationCompletionEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ProduceRegistrationCompletionEvent'
+type EventProducer_ProduceRegistrationCompletionEvent_Call struct {
+	*mock.Call
+}
+
+// ProduceRegistrationCompletionEvent is a helper method to define mock.On call
+//   - ctx context.Context
+//   - msg auth.CompleteRegistrationMessage
+func (_e *EventProducer_Expecter) ProduceRegistrationCompletionEvent(ctx any, msg any) *EventProducer_ProduceRegistrationCompletionEvent_Call {
+	return &EventProducer_ProduceRegistrationCompletionEvent_Call{Call: _e.mock.On("ProduceRegistrationCompletionEvent", ctx, msg)}
+}
+
+func (_c *EventProducer_ProduceRegistrationCompletionEvent_Call) Run(run func(ctx context.Context, msg auth.CompleteRegistrationMessage)) *EventProducer_ProduceRegistrationCompletionEvent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 auth.CompleteRegistrationMessage
+		if args[1] != nil {
+			arg1 = args[1].(auth.CompleteRegistrationMessage)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *EventProducer_ProduceRegistrationCompletionEvent_Call) Return(err error) *EventProducer_ProduceRegistrationCompletionEvent_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *EventProducer_ProduceRegistrationCompletionEvent_Call) RunAndReturn(run func(ctx context.Context, msg auth.CompleteRegistrationMessage) error) *EventProducer_ProduceRegistrationCompletionEvent_Call {
+	_c.Call.Return(run)
+	return _c
+}

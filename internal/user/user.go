@@ -56,8 +56,10 @@ func (u *User) Validate() error {
 	return nil
 }
 
-// New creates new user, returns an error if validation fails.
-func New(name, email, phone string, gender Gender, hashedPassword string) (*User, error) {
+// New builds a user from a completed registration: default role, email
+// verified, optional profile fields (phone/gender/picture) left empty.
+// Returns an error if validation fails.
+func New(name, email string, hashedPassword string) (*User, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, err
@@ -67,11 +69,10 @@ func New(name, email, phone string, gender Gender, hashedPassword string) (*User
 		ID:       id,
 		Name:     name,
 		Email:    email,
-		Phone:    nullable.New(phone, false),
-		Gender:   nullable.New(gender, false),
 		Password: hashedPassword,
 		Role:     rbac.RoleUser,
 	}
+	u.EmailVerifiedAt.Set(time.Now(), false)
 
 	if err := u.Validate(); err != nil {
 		return nil, err

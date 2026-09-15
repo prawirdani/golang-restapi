@@ -59,7 +59,7 @@ func NewContainer(
 
 	authEventProducer := redisInfra.NewAuthEventProducer(rdb)
 	authSvc := auth.NewService(
-		cfg.Auth,
+		cfg,
 		pg,
 		userRepo,
 		authRepo,

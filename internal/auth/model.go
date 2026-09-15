@@ -9,6 +9,20 @@ import (
 	"time"
 )
 
+// RegisterInput starts the invitation flow: an email is sent with a link to
+// complete registration. The password is chosen later via CompleteRegistrationInput.
+type RegisterInput struct {
+	Name  string `json:"name"  validate:"required,min=3"`
+	Email string `json:"email" validate:"required,email"`
+}
+
+// CompleteRegistrationInput finishes an invited registration by consuming the
+// emailed token and setting the account password.
+type CompleteRegistrationInput struct {
+	Token    string `json:"token"    validate:"required"`
+	Password string `json:"password" validate:"required,min=8,max=72"`
+}
+
 type LoginInput struct {
 	Email    string `json:"email"    validate:"required,email"`
 	Password string `json:"password" validate:"required"`
@@ -39,4 +53,12 @@ type PasswordRecoveryMessage struct {
 	Name     string        `json:"name"`       // Recipient's name
 	ResetURL string        `json:"reset_url"`  // Link for resetting the password
 	Expiry   time.Duration `json:"expiry_min"` // Expiration time of the reset token in minutes
+}
+
+// CompleteRegistrationMessage is payload shape for registration completion messaging/queue job
+type CompleteRegistrationMessage struct {
+	To     string        `json:"to"`         // Recipient's email address
+	Name   string        `json:"name"`       // Recipient's name
+	URL    string        `json:"url"`        // Link for completing registration (password creation form)
+	Expiry time.Duration `json:"expiry_min"` // Expiration time of the token in minutes
 }

@@ -107,6 +107,74 @@ func (_c *Repository_GetPasswordRecoveryToken_Call) RunAndReturn(run func(ctx co
 	return _c
 }
 
+// GetRegistrationToken provides a mock function for the type Repository
+func (_mock *Repository) GetRegistrationToken(ctx context.Context, tokenHash []byte) (*auth.RegistrationToken, error) {
+	ret := _mock.Called(ctx, tokenHash)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRegistrationToken")
+	}
+
+	var r0 *auth.RegistrationToken
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []byte) (*auth.RegistrationToken, error)); ok {
+		return returnFunc(ctx, tokenHash)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []byte) *auth.RegistrationToken); ok {
+		r0 = returnFunc(ctx, tokenHash)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*auth.RegistrationToken)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, []byte) error); ok {
+		r1 = returnFunc(ctx, tokenHash)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// Repository_GetRegistrationToken_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRegistrationToken'
+type Repository_GetRegistrationToken_Call struct {
+	*mock.Call
+}
+
+// GetRegistrationToken is a helper method to define mock.On call
+//   - ctx context.Context
+//   - tokenHash []byte
+func (_e *Repository_Expecter) GetRegistrationToken(ctx any, tokenHash any) *Repository_GetRegistrationToken_Call {
+	return &Repository_GetRegistrationToken_Call{Call: _e.mock.On("GetRegistrationToken", ctx, tokenHash)}
+}
+
+func (_c *Repository_GetRegistrationToken_Call) Run(run func(ctx context.Context, tokenHash []byte)) *Repository_GetRegistrationToken_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 []byte
+		if args[1] != nil {
+			arg1 = args[1].([]byte)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *Repository_GetRegistrationToken_Call) Return(registrationToken *auth.RegistrationToken, err error) *Repository_GetRegistrationToken_Call {
+	_c.Call.Return(registrationToken, err)
+	return _c
+}
+
+func (_c *Repository_GetRegistrationToken_Call) RunAndReturn(run func(ctx context.Context, tokenHash []byte) (*auth.RegistrationToken, error)) *Repository_GetRegistrationToken_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetSessionByID provides a mock function for the type Repository
 func (_mock *Repository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*auth.Session, error) {
 	ret := _mock.Called(ctx, sessionID)
@@ -243,63 +311,6 @@ func (_c *Repository_GetSessionByRefreshTokenHash_Call) RunAndReturn(run func(ct
 	return _c
 }
 
-// PruneExpiredUserSessions provides a mock function for the type Repository
-func (_mock *Repository) PruneExpiredUserSessions(ctx context.Context, userID uuid.UUID) error {
-	ret := _mock.Called(ctx, userID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for PruneExpiredUserSessions")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID) error); ok {
-		r0 = returnFunc(ctx, userID)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// Repository_PruneExpiredUserSessions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PruneExpiredUserSessions'
-type Repository_PruneExpiredUserSessions_Call struct {
-	*mock.Call
-}
-
-// PruneExpiredUserSessions is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID uuid.UUID
-func (_e *Repository_Expecter) PruneExpiredUserSessions(ctx any, userID any) *Repository_PruneExpiredUserSessions_Call {
-	return &Repository_PruneExpiredUserSessions_Call{Call: _e.mock.On("PruneExpiredUserSessions", ctx, userID)}
-}
-
-func (_c *Repository_PruneExpiredUserSessions_Call) Run(run func(ctx context.Context, userID uuid.UUID)) *Repository_PruneExpiredUserSessions_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 uuid.UUID
-		if args[1] != nil {
-			arg1 = args[1].(uuid.UUID)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *Repository_PruneExpiredUserSessions_Call) Return(err error) *Repository_PruneExpiredUserSessions_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *Repository_PruneExpiredUserSessions_Call) RunAndReturn(run func(ctx context.Context, userID uuid.UUID) error) *Repository_PruneExpiredUserSessions_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // RevokeUserSessions provides a mock function for the type Repository
 func (_mock *Repository) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
 	ret := _mock.Called(ctx, userID)
@@ -414,6 +425,63 @@ func (_c *Repository_StorePasswordRecoveryToken_Call) RunAndReturn(run func(ctx 
 	return _c
 }
 
+// StoreRegistrationToken provides a mock function for the type Repository
+func (_mock *Repository) StoreRegistrationToken(ctx context.Context, token *auth.RegistrationToken) error {
+	ret := _mock.Called(ctx, token)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StoreRegistrationToken")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *auth.RegistrationToken) error); ok {
+		r0 = returnFunc(ctx, token)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// Repository_StoreRegistrationToken_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StoreRegistrationToken'
+type Repository_StoreRegistrationToken_Call struct {
+	*mock.Call
+}
+
+// StoreRegistrationToken is a helper method to define mock.On call
+//   - ctx context.Context
+//   - token *auth.RegistrationToken
+func (_e *Repository_Expecter) StoreRegistrationToken(ctx any, token any) *Repository_StoreRegistrationToken_Call {
+	return &Repository_StoreRegistrationToken_Call{Call: _e.mock.On("StoreRegistrationToken", ctx, token)}
+}
+
+func (_c *Repository_StoreRegistrationToken_Call) Run(run func(ctx context.Context, token *auth.RegistrationToken)) *Repository_StoreRegistrationToken_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *auth.RegistrationToken
+		if args[1] != nil {
+			arg1 = args[1].(*auth.RegistrationToken)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *Repository_StoreRegistrationToken_Call) Return(err error) *Repository_StoreRegistrationToken_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *Repository_StoreRegistrationToken_Call) RunAndReturn(run func(ctx context.Context, token *auth.RegistrationToken) error) *Repository_StoreRegistrationToken_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // StoreSession provides a mock function for the type Repository
 func (_mock *Repository) StoreSession(ctx context.Context, session *auth.Session) error {
 	ret := _mock.Called(ctx, session)
@@ -524,6 +592,63 @@ func (_c *Repository_UpdatePasswordRecoveryToken_Call) Return(err error) *Reposi
 }
 
 func (_c *Repository_UpdatePasswordRecoveryToken_Call) RunAndReturn(run func(ctx context.Context, token *auth.PasswordRecoveryToken) error) *Repository_UpdatePasswordRecoveryToken_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateRegistrationToken provides a mock function for the type Repository
+func (_mock *Repository) UpdateRegistrationToken(ctx context.Context, token *auth.RegistrationToken) error {
+	ret := _mock.Called(ctx, token)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateRegistrationToken")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *auth.RegistrationToken) error); ok {
+		r0 = returnFunc(ctx, token)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// Repository_UpdateRegistrationToken_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateRegistrationToken'
+type Repository_UpdateRegistrationToken_Call struct {
+	*mock.Call
+}
+
+// UpdateRegistrationToken is a helper method to define mock.On call
+//   - ctx context.Context
+//   - token *auth.RegistrationToken
+func (_e *Repository_Expecter) UpdateRegistrationToken(ctx any, token any) *Repository_UpdateRegistrationToken_Call {
+	return &Repository_UpdateRegistrationToken_Call{Call: _e.mock.On("UpdateRegistrationToken", ctx, token)}
+}
+
+func (_c *Repository_UpdateRegistrationToken_Call) Run(run func(ctx context.Context, token *auth.RegistrationToken)) *Repository_UpdateRegistrationToken_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *auth.RegistrationToken
+		if args[1] != nil {
+			arg1 = args[1].(*auth.RegistrationToken)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *Repository_UpdateRegistrationToken_Call) Return(err error) *Repository_UpdateRegistrationToken_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *Repository_UpdateRegistrationToken_Call) RunAndReturn(run func(ctx context.Context, token *auth.RegistrationToken) error) *Repository_UpdateRegistrationToken_Call {
 	_c.Call.Return(run)
 	return _c
 }

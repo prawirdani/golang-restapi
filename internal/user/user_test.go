@@ -11,137 +11,43 @@ import (
 )
 
 func TestNew(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		u, err := New("John Doe", "john@example.com", "hashedpassword")
+		require.NoError(t, err)
+		require.NotNil(t, u)
+
+		assert.NotEqual(t, uuid.Nil, u.ID)
+		assert.Equal(t, "John Doe", u.Name)
+		assert.Equal(t, "john@example.com", u.Email)
+		assert.Equal(t, "hashedpassword", u.Password)
+		assert.Equal(t, rbac.RoleUser, u.Role)
+		// Completing registration verifies the email at creation time.
+		assert.True(t, u.EmailVerifiedAt.NotNull())
+		// Optional profile fields start empty.
+		assert.False(t, u.Phone.NotNull())
+		assert.False(t, u.Gender.NotNull())
+		assert.False(t, u.ProfilePicture.NotNull())
+	})
+
 	tests := []struct {
-		title        string
-		input        CreateUserInput
-		expectError  error
-		validateUser func(*testing.T, *User)
+		title    string
+		name     string
+		email    string
+		password string
 	}{
-		{
-			title: "Success with phone",
-			input: CreateUserInput{
-				Name:     "John Doe",
-				Email:    "john@example.com",
-				Phone:    "123456789",
-				Password: "hashedpassword",
-			},
-			expectError: nil,
-			validateUser: func(t *testing.T, user *User) {
-				assert.NotEqual(t, uuid.Nil, user.ID)
-				assert.Equal(t, "John Doe", user.Name)
-				assert.Equal(t, "john@example.com", user.Email)
-				assert.Equal(t, "hashedpassword", user.Password)
-				assert.True(t, user.Phone.NotNull())
-				assert.Equal(t, "123456789", user.Phone.Get())
-				assert.False(t, user.ProfilePicture.NotNull())
-			},
-		},
-		{
-			title: "Success without phone",
-			input: CreateUserInput{
-				Name:     "Jane Doe",
-				Email:    "jane@example.com",
-				Phone:    "",
-				Password: "hashedpassword",
-			},
-			expectError: nil,
-			validateUser: func(t *testing.T, user *User) {
-				assert.NotEqual(t, uuid.Nil, user.ID)
-				assert.Equal(t, "Jane Doe", user.Name)
-				assert.Equal(t, "jane@example.com", user.Email)
-				assert.Equal(t, "hashedpassword", user.Password)
-				assert.False(t, user.Phone.NotNull())
-				assert.Equal(t, "", user.Phone.Get())
-				assert.False(t, user.ProfilePicture.NotNull())
-			},
-		},
-		{
-			title: "Success with gender",
-			input: CreateUserInput{
-				Name:     "Jane Doe",
-				Email:    "jane@example.com",
-				Phone:    "123456789",
-				Gender:   "M",
-				Password: "hashedpassword",
-			},
-			expectError: nil,
-			validateUser: func(t *testing.T, user *User) {
-				assert.NotEqual(t, uuid.Nil, user.ID)
-				assert.Equal(t, "Jane Doe", user.Name)
-				assert.Equal(t, "jane@example.com", user.Email)
-				assert.Equal(t, "hashedpassword", user.Password)
-				assert.True(t, user.Phone.NotNull())
-				assert.Equal(t, "123456789", user.Phone.Get())
-				assert.True(t, user.Gender.NotNull())
-				assert.Equal(t, GenderMale, user.Gender.Get())
-				assert.False(t, user.ProfilePicture.NotNull())
-			},
-		},
-		{
-			title: "Validation error empty name",
-			input: CreateUserInput{
-				Name:     "",
-				Email:    "john@example.com",
-				Phone:    "123456789",
-				Password: "hashedpassword",
-			},
-			expectError:  ErrValidation,
-			validateUser: nil,
-		},
-		{
-			title: "Validation error empty email",
-			input: CreateUserInput{
-				Name:     "John Doe",
-				Email:    "",
-				Phone:    "123456789",
-				Password: "hashedpassword",
-			},
-			expectError:  ErrValidation,
-			validateUser: nil,
-		},
-		{
-			title: "Validation error empty password",
-			input: CreateUserInput{
-				Name:     "John Doe",
-				Email:    "john@example.com",
-				Phone:    "123456789",
-				Password: "",
-			},
-			expectError:  ErrValidation,
-			validateUser: nil,
-		},
-		{
-			title: "Profile picture is null by default",
-			input: CreateUserInput{
-				Name:     "John Doe",
-				Email:    "john@example.com",
-				Phone:    "123456789",
-				Password: "hashedpassword",
-			},
-			expectError: nil,
-			validateUser: func(t *testing.T, user *User) {
-				assert.False(t, user.ProfilePicture.NotNull())
-				assert.Equal(t, "", user.ProfilePicture.Get())
-			},
-		},
+		{"Empty name", "", "john@example.com", "hashedpassword"},
+		{"Empty email", "John Doe", "", "hashedpassword"},
+		{"Invalid email", "John Doe", "not-an-email", "hashedpassword"},
+		{"Empty password", "John Doe", "john@example.com", ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.title, func(t *testing.T) {
-			inp := tt.input
-			user, err := New(inp.Name, inp.Email, inp.Phone, Gender(inp.Gender), inp.Password)
+			u, err := New(tt.name, tt.email, tt.password)
 
-			if tt.expectError != nil {
-				assert.Error(t, err)
-				assert.ErrorIs(t, err, tt.expectError)
-				assert.Nil(t, user)
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, user)
-				if tt.validateUser != nil {
-					tt.validateUser(t, user)
-				}
-			}
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, ErrValidation)
+			assert.Nil(t, u)
 		})
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/config"
@@ -24,6 +24,7 @@ import (
 
 const (
 	PermChangePassword rbac.Permission = "auth.change-password"
+	PermRegisterUser   rbac.Permission = "auth.register-user" // new user registration by authorized roles (if internal mode is true)
 )
 
 // Audit Actions for the auth entity. Login/logout/change-password are gated by
@@ -32,23 +33,19 @@ const (
 //
 //nolint:gosec // G101: audit action identifiers, not credentials
 const (
-	ActionLogin           audit.Action = "auth.login"
-	ActionLoginFailed     audit.Action = "auth.login-failed"
-	ActionLogout          audit.Action = "auth.logout"
-	ActionChangePassword  audit.Action = "auth.change-password"
-	ActionResetPassword   audit.Action = "auth.reset-password"
-	ActionRecoverPassword audit.Action = "auth.password-recovery-request"
-	ActionTokenReuse      audit.Action = "auth.token-reuse-detected"
+	ActionRegister             audit.Action = "auth.register"
+	ActionCompleteRegistration audit.Action = "auth.complete-registration"
+	ActionLogin                audit.Action = "auth.login"
+	ActionLoginFailed          audit.Action = "auth.login-failed"
+	ActionLogout               audit.Action = "auth.logout"
+	ActionChangePassword       audit.Action = "auth.change-password"
+	ActionResetPassword        audit.Action = "auth.reset-password"
+	ActionRecoverPassword      audit.Action = "auth.password-recovery-request"
+	ActionTokenReuse           audit.Action = "auth.token-reuse-detected"
 )
 
-var permTables = rbac.PermissionTable{
-	rbac.RoleSystem: {PermChangePassword: {}},
-	rbac.RoleAdmin:  {PermChangePassword: {}},
-	rbac.RoleUser:   {}, // Self change password through authorize.SelfOr
-}
-
 type Service struct {
-	cfg           config.Auth
+	cfg           *config.Config
 	transactor    repository.Transactor
 	authRepo      Repository
 	userRepo      UserRepository
@@ -59,7 +56,7 @@ type Service struct {
 }
 
 func NewService(
-	cfg config.Auth,
+	cfg *config.Config,
 	transactor repository.Transactor,
 	userRepo UserRepository,
 	authRepo Repository,
@@ -68,6 +65,17 @@ func NewService(
 	throttler throttle.Throttler,
 	auditRecorder audit.Recorder,
 ) *Service {
+	permTables := rbac.PermissionTable{
+		rbac.RoleSystem: {PermChangePassword: {}},
+		rbac.RoleAdmin:  {PermChangePassword: {}},
+		rbac.RoleUser:   {},
+	}
+
+	if cfg.App.InternalMode {
+		permTables[rbac.RoleSystem][PermRegisterUser] = struct{}{}
+		permTables[rbac.RoleAdmin][PermRegisterUser] = struct{}{}
+	}
+
 	authorizer.RegisterPermissions(permTables)
 
 	return &Service{
@@ -91,35 +99,117 @@ func (s *Service) auditBestEffort(ctx context.Context, e audit.Entry) {
 	}
 }
 
-func (s *Service) Register(ctx context.Context, inp user.CreateUserInput) error {
-	// TODO: App config to determine register is public or admin only
-	hashedPassword, err := HashPassword(inp.Password)
-	if err != nil {
-		return err
+// Register issues a short-lived registration token for inp.Email and
+// sends a completion link once the token is durably stored. In internal
+// mode it requires the PermRegisterUser permission (admin/system only).
+// Returns user.ErrEmailConflict if the email is already registered.
+func (s *Service) Register(ctx context.Context, inp RegisterInput) error {
+	if s.cfg.App.InternalMode {
+		if err := s.authorizer.Require(ctx, PermRegisterUser); err != nil {
+			return err
+		}
 	}
 
-	newUser, err := user.New(
-		inp.Name,
-		inp.Email,
-		inp.Phone,
-		user.Gender(strings.ToUpper(inp.Gender)),
-		string(hashedPassword),
-	)
-	if err != nil {
-		return err
-	}
+	var token *RegistrationToken
+	var rawToken string
 
-	if err := s.userRepo.Store(ctx, newUser); err != nil {
-		return err
-	}
+	err := s.transactor.Transact(ctx, func(ctx context.Context) error {
+		u, err := s.userRepo.GetByEmail(ctx, inp.Email)
+		if err != nil && !errors.Is(err, apperr.ErrNotFound) {
+			return fmt.Errorf("looking up user by email: %w", err)
+		}
+		if u != nil {
+			return user.ErrEmailConflict
+		}
 
-	s.auditBestEffort(ctx, audit.Entry{
-		Action:   user.ActionCreate,
-		Entity:   "user",
-		EntityID: newUser.ID.String(),
-		Next:     newUser,
+		token, rawToken, err = NewRegistrationToken(inp.Name, inp.Email, s.cfg.Auth.RegistrationTokenTTL)
+		if err != nil {
+			return fmt.Errorf("creating registration token: %w", err)
+		}
+
+		if err := s.authRepo.StoreRegistrationToken(ctx, token); err != nil {
+			return fmt.Errorf("storing registration token: %w", err)
+		}
+
+		return s.audit.Record(ctx, audit.Entry{
+			Action:   ActionRegister,
+			Entity:   "registration_token",
+			EntityID: strconv.Itoa(token.ID),
+			Prev:     nil,
+			Next:     token,
+			Meta:     nil,
+		})
 	})
+	if err != nil {
+		return err
+	}
+
+	if err := s.eventProducer.ProduceRegistrationCompletionEvent(ctx, CompleteRegistrationMessage{
+		To:     inp.Email,
+		Name:   inp.Name,
+		URL:    fmt.Sprintf("%s?token=%s", s.cfg.Auth.CompleteRegistrationFormEndpoint, rawToken),
+		Expiry: s.cfg.Auth.RegistrationTokenTTL,
+	}); err != nil {
+		return fmt.Errorf("registration succeeded but failed to send completion email: %w", err)
+	}
+
 	return nil
+}
+
+// CompleteRegistration consumes a valid registration token and creates the
+// user with the chosen password, atomically marking the token used. Returns
+// ErrInvalidRegistrationToken if the token is missing, expired, or already used.
+func (s *Service) CompleteRegistration(ctx context.Context, inp CompleteRegistrationInput) error {
+	passwordHash, err := HashPassword(inp.Password)
+	if err != nil {
+		return err
+	}
+
+	sum := HashStr(inp.Token)
+
+	return s.transactor.Transact(ctx, func(ctx context.Context) error {
+		regToken, err := s.authRepo.GetRegistrationToken(ctx, sum)
+		if err != nil {
+			// Mirror ResetPassword: an unknown token is an auth failure, not a 404.
+			if errors.Is(err, apperr.ErrNotFound) {
+				return ErrInvalidRegistrationToken
+			}
+			return err
+		}
+
+		// TODO: if used, return early to make it idempotent???
+		if err := regToken.Use(); err != nil {
+			return err
+		}
+
+		u, err := user.New(regToken.Name, regToken.Email, string(passwordHash))
+		if err != nil {
+			return err
+		}
+
+		// TODO: Prune all tokens that uses same email???
+		if err := s.authRepo.UpdateRegistrationToken(ctx, regToken); err != nil {
+			return err
+		}
+
+		if err := s.userRepo.Store(ctx, u); err != nil {
+			return err
+		}
+
+		return s.audit.Record(ctx, audit.Entry{
+			Action:   ActionCompleteRegistration,
+			Entity:   "user",
+			EntityID: u.ID.String(),
+			Next:     u,
+		})
+	})
+}
+
+// GetRegistrationToken looks up a registration token by its raw value so the
+// completion form can show the invitee's status (expiry / already used).
+func (s *Service) GetRegistrationToken(ctx context.Context, rawToken string) (*RegistrationToken, error) {
+	sum := HashStr(rawToken)
+	return s.authRepo.GetRegistrationToken(ctx, sum)
 }
 
 // Login is a method to authenticate the user, returning access token, refresh token, and error if any.
@@ -165,7 +255,7 @@ func (s *Service) Login(
 		return nil, err
 	}
 
-	sess, refreshToken, err := NewSession(ctx, usr.ID, s.cfg.SessionTTL)
+	sess, refreshToken, err := NewSession(ctx, usr.ID, s.cfg.Auth.SessionTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +398,7 @@ func (s *Service) RecoverPassword(ctx context.Context, inp RecoverPasswordInput)
 			return err
 		}
 
-		tokenObj, tokenRaw, err := NewPasswordRecoveryToken(usr.ID, s.cfg.PasswordRecoveryTokenTTL)
+		tokenObj, tokenRaw, err := NewPasswordRecoveryToken(usr.ID, s.cfg.Auth.PasswordRecoveryTokenTTL)
 		if err != nil {
 			log.ErrorCtx(ctx, "Failed to create reset password token", err)
 			return err
@@ -322,8 +412,8 @@ func (s *Service) RecoverPassword(ctx context.Context, inp RecoverPasswordInput)
 		msg = PasswordRecoveryMessage{
 			To:       usr.Email,
 			Name:     usr.Name,
-			ResetURL: s.cfg.ResetPasswordFormEndpoint + "?token=" + tokenRaw,
-			Expiry:   s.cfg.PasswordRecoveryTokenTTL,
+			ResetURL: s.cfg.Auth.ResetPasswordFormEndpoint + "?token=" + tokenRaw,
+			Expiry:   s.cfg.Auth.PasswordRecoveryTokenTTL,
 		}
 		return nil
 	})
@@ -447,5 +537,5 @@ func (s *Service) ChangePassword(
 }
 
 func (s *Service) generateAccessToken(userID, sessID uuid.UUID, role rbac.Role) (string, error) {
-	return SignAccessToken(s.cfg.JwtSecret, s.cfg.JwtTTL, userID, sessID, role)
+	return SignAccessToken(s.cfg.Auth.JwtSecret, s.cfg.Auth.JwtTTL, userID, sessID, role)
 }

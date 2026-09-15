@@ -49,7 +49,9 @@ func NewServer(container *Container, onPostShutdown func(error) error) (*Server,
 	app.Use(requestid.New())
 	app.Use(http.AuditContext())
 	app.Use(compress.New())
-	app.Use(etag.New())
+	app.Use(etag.New(etag.Config{
+		Weak: true,
+	}))
 	app.Use(cors.New(cors.Config{
 		AllowOrigins:     container.Config.Cors.Origins,
 		AllowCredentials: container.Config.Cors.Credentials,
@@ -139,7 +141,7 @@ func (s *Server) health(c fiber.Ctx) error {
 			"dependencies": deps,
 		})
 	}
-	return c.JSON(fiber.Map{"status": "ok"})
+	return c.JSON(fiber.Map{"status": "ok", "internal_mode": s.container.Config.App.InternalMode})
 }
 
 // setupHandlers initializes and registers all API handlers.

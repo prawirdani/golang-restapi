@@ -42,14 +42,26 @@ func TestService_Register(t *testing.T) {
 		ctx := context.Background()
 		f := setupTestFixture(t)
 
-		input := user.CreateUserInput{
-			Name:     "John Doe",
-			Email:    "john@example.com",
-			Phone:    "1234567890",
-			Password: "password123",
+		input := auth.RegisterInput{
+			Name:  "John Doe",
+			Email: "john@example.com",
 		}
 
-		f.userRepo.EXPECT().Store(ctx, mock.AnythingOfType("*user.User")).Return(nil)
+		// No existing user -> issues and stores a registration token, then
+		// enqueues the completion email.
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, apperr.ErrNotFound)
+				f.authRepo.EXPECT().
+					StoreRegistrationToken(ctx, mock.AnythingOfType("*auth.RegistrationToken")).
+					Return(nil)
+				return fn(ctx)
+			})
+
+		f.eventProducer.EXPECT().
+			ProduceRegistrationCompletionEvent(ctx, mock.AnythingOfType("auth.CompleteRegistrationMessage")).
+			Return(nil)
 
 		err := f.service.Register(ctx, input)
 
@@ -60,14 +72,19 @@ func TestService_Register(t *testing.T) {
 		ctx := context.Background()
 		f := setupTestFixture(t)
 
-		input := user.CreateUserInput{
-			Name:     "John Doe",
-			Email:    "john@example.com",
-			Password: "password123",
+		input := auth.RegisterInput{
+			Name:  "John Doe",
+			Email: "john@example.com",
 		}
 
-		// Relies on the unique constraint: Store maps the violation to ErrEmailConflict.
-		f.userRepo.EXPECT().Store(ctx, mock.AnythingOfType("*user.User")).Return(user.ErrEmailConflict)
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				f.userRepo.EXPECT().
+					GetByEmail(ctx, input.Email).
+					Return(&user.User{ID: uuid.New(), Email: input.Email}, nil)
+				return fn(ctx)
+			})
 
 		err := f.service.Register(ctx, input)
 
@@ -98,7 +115,6 @@ func TestService_Login(t *testing.T) {
 
 		f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(mockUser, nil)
 		f.authRepo.EXPECT().StoreSession(ctx, mock.AnythingOfType("*auth.Session")).Return(nil)
-		f.authRepo.EXPECT().PruneExpiredUserSessions(ctx, mockUser.ID).Return(nil)
 
 		tokenPair, err := f.service.Login(ctx, input)
 
@@ -725,12 +741,16 @@ type testFixture struct {
 }
 
 func setupTestFixture(t *testing.T) *testFixture {
-	cfg := config.Auth{
+	authCfg := config.Auth{
 		JwtSecret:                "test-secret",
 		JwtTTL:                   time.Hour,
 		SessionTTL:               24 * time.Hour,
 		PasswordRecoveryTokenTTL: time.Hour,
+		RegistrationTokenTTL:     time.Hour,
 	}
+	// InternalMode defaults to false, so registration is public in tests.
+	cfg := &config.Config{Auth: authCfg}
+
 	tr := sharedMocks.NewTransactor(t)
 	userRepo := mocks.NewUserRepository(t)
 	authRepo := mocks.NewRepository(t)
@@ -756,7 +776,7 @@ func setupTestFixture(t *testing.T) *testFixture {
 	})
 
 	return &testFixture{
-		cfg:           cfg,
+		cfg:           authCfg,
 		transactor:    tr,
 		userRepo:      userRepo,
 		authRepo:      authRepo,

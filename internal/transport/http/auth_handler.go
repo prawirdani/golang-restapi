@@ -38,7 +38,14 @@ func (h *AuthHandler) Routes(router fiber.Router) {
 	router.Route("/auth", func(authRouter fiber.Router) {
 		authRouter.Post("/login", RateLimit(5, 1*time.Minute), h.login)
 
-		authRouter.Post("/register", h.register)
+		if h.cfg.App.InternalMode {
+			authRouter.Post("/register", authenticator, h.register)
+		} else {
+			authRouter.Post("/register", h.register)
+		}
+		authRouter.Post("/register/complete", h.completeRegistration)
+		authRouter.Get("/register/:token", h.getRegistrationToken)
+
 		authRouter.Post("/refresh", h.refreshAccessToken)
 
 		authRouter.Post("/password/recover", RateLimit(5, 1*time.Minute), h.recoverPassword)
@@ -53,10 +60,12 @@ func (h *AuthHandler) Routes(router fiber.Router) {
 	})
 }
 
+// register starts the invitation flow (public, or admin/system only when
+// APP_INTERNAL_MODE is enabled). No account exists until completion.
 func (h *AuthHandler) register(c fiber.Ctx) error {
 	ctx := c.Context()
 
-	var reqBody user.CreateUserInput
+	var reqBody auth.RegisterInput
 	if err := BindValidateJSON(c, &reqBody); err != nil {
 		return err
 	}
@@ -67,7 +76,48 @@ func (h *AuthHandler) register(c fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(&Body{
-		Message: "registration successful",
+		Message: "registration successful, check your email",
+	})
+}
+
+// completeRegistration consumes the emailed token and creates the account
+// with the chosen password.
+func (h *AuthHandler) completeRegistration(c fiber.Ctx) error {
+	ctx := c.Context()
+
+	var reqBody auth.CompleteRegistrationInput
+	if err := BindValidateJSON(c, &reqBody); err != nil {
+		return err
+	}
+
+	if err := h.authService.CompleteRegistration(ctx, reqBody); err != nil {
+		log.ErrorCtx(ctx, "Failed to complete user registration", err)
+		return err
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(&Body{
+		Message: "registration completed",
+	})
+}
+
+// getRegistrationToken exposes a registration token's status so the completion
+// form can show whether the link is still usable.
+func (h *AuthHandler) getRegistrationToken(c fiber.Ctx) error {
+	ctx := c.Context()
+
+	rawToken := c.Params("token")
+
+	token, err := h.authService.GetRegistrationToken(ctx, rawToken)
+	if err != nil {
+		log.ErrorCtx(ctx, "Failed to get registration token", err)
+		return err
+	}
+
+	return c.JSON(&Body{
+		Data: map[string]any{
+			"expires_at": token.ExpiresAt,
+			"used_at":    token.UsedAt,
+		},
 	})
 }
 

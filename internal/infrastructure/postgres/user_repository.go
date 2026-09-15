@@ -30,14 +30,15 @@ func (r *userRepository) Store(ctx context.Context, u *user.User) error {
 	}
 
 	args := pgx.NamedArgs{
-		"id":              u.ID,
-		"name":            u.Name,
-		"email":           u.Email,
-		"password":        u.Password,
-		"phone":           u.Phone,
-		"gender":          u.Gender,
-		"role":            u.Role,
-		"profile_picture": u.ProfilePicture,
+		"id":                u.ID,
+		"name":              u.Name,
+		"email":             u.Email,
+		"email_verified_at": u.EmailVerifiedAt,
+		"password":          u.Password,
+		"phone":             u.Phone,
+		"gender":            u.Gender,
+		"role":              u.Role,
+		"profile_picture":   u.ProfilePicture,
 	}
 
 	query := generateInsertQuery("users", args) + "\nRETURNING created_at, updated_at"

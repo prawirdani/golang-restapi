@@ -195,3 +195,65 @@ func (r *authRepository) UpdatePasswordRecoveryToken(
 
 	return nil
 }
+
+// GetRegistrationToken implements [auth.Repository].
+func (r *authRepository) GetRegistrationToken(
+	ctx context.Context,
+	tokenHash []byte,
+) (*auth.RegistrationToken, error) {
+	query := "SELECT * FROM registration_tokens WHERE token_hash=$1"
+
+	conn := r.db.GetConn(ctx)
+	if r.db.IsTxConn(conn) {
+		query += "\nFOR UPDATE"
+	}
+
+	var token auth.RegistrationToken
+	if err := pgxscan.Get(ctx, conn, &token, query, tokenHash); err != nil {
+		if noRowsErr(err) {
+			return nil, fmt.Errorf("get registration token: %w", apperr.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get registration token: %w", err)
+	}
+
+	return &token, nil
+}
+
+// StoreRegistrationToken implements [auth.Repository].
+func (r *authRepository) StoreRegistrationToken(ctx context.Context, token *auth.RegistrationToken) error {
+	if token == nil {
+		return errors.New("registration token is nil")
+	}
+
+	args := pgx.NamedArgs{
+		"name":       token.Name,
+		"email":      token.Email,
+		"token_hash": token.TokenHash,
+		"created_at": token.CreatedAt,
+		"expires_at": token.ExpiresAt,
+	}
+	query := generateInsertQuery("registration_tokens", args) + "\n RETURNING id"
+	conn := r.db.GetConn(ctx)
+
+	if err := pgxscan.Get(ctx, conn, &token.ID, query, args); err != nil {
+		return fmt.Errorf("store registration token: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateRegistrationToken implements [auth.Repository].
+func (r *authRepository) UpdateRegistrationToken(ctx context.Context, token *auth.RegistrationToken) error {
+	if token == nil {
+		return errors.New("registration token is nil")
+	}
+
+	query := "UPDATE registration_tokens SET used_at=$1 WHERE id=$2"
+	conn := r.db.GetConn(ctx)
+
+	if _, err := conn.Exec(ctx, query, token.UsedAt, token.ID); err != nil {
+		return fmt.Errorf("update registration token: %w", err)
+	}
+
+	return nil
+}

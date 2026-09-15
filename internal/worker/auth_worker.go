@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"fmt"
 
 	"github.com/prawirdani/golang-restapi/internal/auth"
 	"github.com/prawirdani/golang-restapi/pkg/mailer"
@@ -41,6 +42,32 @@ func (w *AuthWorker) SendPasswordRecoveryEmail(
 		mailer.HeaderParams{
 			To:      []string{msg.To},
 			Subject: "Password Recovery",
+		},
+		buf,
+	)
+}
+
+// SendCompleteRegistrationEmail renders and sends the "complete your
+// registration" email carrying the password-creation link.
+func (w *AuthWorker) SendCompleteRegistrationEmail(
+	ctx context.Context,
+	msg auth.CompleteRegistrationMessage,
+) error {
+	var buf bytes.Buffer
+	// The template expects {{.Expiry}} as a pre-formatted, human-readable
+	// string (it does no duration math itself).
+	if err := w.mailer.Templates.CompleteRegistration.Execute(&buf, map[string]any{
+		"Name":   msg.Name,
+		"Expiry": fmt.Sprintf("%d minutes", int(msg.Expiry.Minutes())),
+		"URL":    msg.URL,
+	}); err != nil {
+		return err
+	}
+
+	return w.mailer.Send(
+		mailer.HeaderParams{
+			To:      []string{msg.To},
+			Subject: "Complete Registration",
 		},
 		buf,
 	)

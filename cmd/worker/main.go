@@ -65,6 +65,7 @@ func run() error {
 	// Register all consumers here.
 	consumers := []redisInfra.Consumer{
 		authEventConsumers.PasswordRecovery,
+		authEventConsumers.CompleteRegistration,
 		// Add more consumers as the application grows:
 		// authEvents.EmailVerification,
 		// notificationEvents.PushNotification,

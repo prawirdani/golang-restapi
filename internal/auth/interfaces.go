@@ -14,18 +14,25 @@ import (
 
 // Repository defines the persistence operations for authentication data.
 type Repository interface {
-	// StoreSession creates a new session record.
-	StoreSession(ctx context.Context, session *Session) error
+	SessionReader
+	SessionWriter
+	TokenReader
+	TokenWriter
+}
 
+type SessionReader interface {
 	// GetSessionByID retrieves a session by its ID.
-	//
 	// Returns [apperr.ErrNotFound] if no session exists with the given sessionID
 	GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*Session, error)
 
 	// GetSessionByRefreshToken retrieves a session by refresh token hash
-	//
 	// Returns [apperr.ErrNotFound] if no session exists with the given tokenHash
 	GetSessionByRefreshTokenHash(ctx context.Context, tokenHash []byte) (*Session, error)
+}
+
+type SessionWriter interface {
+	// StoreSession creates a new session record.
+	StoreSession(ctx context.Context, session *Session) error
 
 	// UpdateSession updates an existing session.
 	// Only updates the refresh_token_hash for rotation and revoked_at.
@@ -34,6 +41,26 @@ type Repository interface {
 
 	// RevokeUserSessions revokes all active sessions for a user.
 	RevokeUserSessions(ctx context.Context, userID uuid.UUID) error
+}
+
+type TokenReader interface {
+	// GetRegistrationToken retrieves registration token by its tokenHash value.
+	// Returns [apperr.ErrNotFound].
+	GetRegistrationToken(ctx context.Context, tokenHash []byte) (*RegistrationToken, error)
+
+	// GetPasswordRecoveryToken retrieves a token by its tokenHash value.
+	// Returns [apperr.ErrNotFound] if no token exists with the given tokenHash
+	GetPasswordRecoveryToken(ctx context.Context, tokenHash []byte) (*PasswordRecoveryToken, error)
+}
+
+type TokenWriter interface {
+	// StoreRegistrationToken persists new user registration token.
+	// Implementations should assign token id on successful write.
+	StoreRegistrationToken(ctx context.Context, token *RegistrationToken) error
+
+	// UpdateRegistrationToken updates an existing registration token.
+	// Only updates the UsedAt field.
+	UpdateRegistrationToken(ctx context.Context, token *RegistrationToken) error
 
 	// StorePasswordRecoveryToken persists new recovery password token.
 	StorePasswordRecoveryToken(ctx context.Context, token *PasswordRecoveryToken) error
@@ -41,10 +68,6 @@ type Repository interface {
 	// UpdatePasswordRecoveryToken updates an existing password recovery token.
 	// Only updates the UsedAt field
 	UpdatePasswordRecoveryToken(ctx context.Context, token *PasswordRecoveryToken) error
-
-	// GetPasswordRecoveryToken retrieves a token by its value.
-	// Returns [apperr.ErrNotFound] if no token exists with the given tokenHash
-	GetPasswordRecoveryToken(ctx context.Context, tokenHash []byte) (*PasswordRecoveryToken, error)
 }
 
 type UserRepository user.Repository
@@ -55,4 +78,5 @@ type UserRepository user.Repository
 // Email delivery is handled asynchronously by downstream consumers.
 type EventProducer interface {
 	ProducePasswordRecoveryEvent(ctx context.Context, msg PasswordRecoveryMessage) error
+	ProduceRegistrationCompletionEvent(ctx context.Context, msg CompleteRegistrationMessage) error
 }
