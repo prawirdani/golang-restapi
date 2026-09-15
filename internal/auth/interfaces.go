@@ -35,9 +35,6 @@ type Repository interface {
 	// RevokeUserSessions revokes all active sessions for a user.
 	RevokeUserSessions(ctx context.Context, userID uuid.UUID) error
 
-	// PruneExpiredUserSessions deletes expired sessions for a user.
-	PruneExpiredUserSessions(ctx context.Context, userID uuid.UUID) error
-
 	// StorePasswordRecoveryToken persists new recovery password token.
 	StorePasswordRecoveryToken(ctx context.Context, token *PasswordRecoveryToken) error
 
@@ -46,7 +43,6 @@ type Repository interface {
 	UpdatePasswordRecoveryToken(ctx context.Context, token *PasswordRecoveryToken) error
 
 	// GetPasswordRecoveryToken retrieves a token by its value.
-	//
 	// Returns [apperr.ErrNotFound] if no token exists with the given tokenHash
 	GetPasswordRecoveryToken(ctx context.Context, tokenHash []byte) (*PasswordRecoveryToken, error)
 }

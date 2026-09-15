@@ -85,19 +85,6 @@ func (r *authRepository) RevokeUserSessions(ctx context.Context, userID uuid.UUI
 	return nil
 }
 
-// PruneExpiredUserSessions implements [auth.Repository]
-func (r *authRepository) PruneExpiredUserSessions(ctx context.Context, userID uuid.UUID) error {
-	query := "DELETE FROM sessions WHERE user_id = @user_id AND expires_at < now()"
-	args := pgx.NamedArgs{"user_id": userID}
-	conn := r.db.GetConn(ctx)
-
-	if _, err := conn.Exec(ctx, query, args); err != nil {
-		return fmt.Errorf("prune expired user sessions: %w", err)
-	}
-
-	return nil
-}
-
 // GetSessionByID implements [auth.Repository]
 func (r *authRepository) GetSessionByID(
 	ctx context.Context,

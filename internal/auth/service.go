@@ -179,11 +179,6 @@ func (s *Service) Login(
 		return nil, err
 	}
 
-	// ponytail: prune-on-login, no cron
-	if err := s.authRepo.PruneExpiredUserSessions(ctx, usr.ID); err != nil {
-		log.ErrorCtx(ctx, "Failed to prune expired sessions", err)
-	}
-
 	s.auditBestEffort(ctx, audit.Entry{
 		Action:   ActionLogin,
 		Entity:   "user",
