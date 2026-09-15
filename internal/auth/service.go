@@ -102,7 +102,7 @@ func (s *Service) auditBestEffort(ctx context.Context, e audit.Entry) {
 // Register issues a short-lived registration token for inp.Email and
 // sends a completion link once the token is durably stored. In internal
 // mode it requires the PermRegisterUser permission (admin/system only).
-// Returns user.ErrEmailConflict if the email is already registered.
+// Returns [user.ErrEmailConflict] if the email is already registered.
 func (s *Service) Register(ctx context.Context, inp RegisterInput) error {
 	if s.cfg.App.InternalMode {
 		if err := s.authorizer.Require(ctx, PermRegisterUser); err != nil {
@@ -157,8 +157,8 @@ func (s *Service) Register(ctx context.Context, inp RegisterInput) error {
 }
 
 // CompleteRegistration consumes a valid registration token and creates the
-// user with the chosen password, atomically marking the token used. Returns
-// ErrInvalidRegistrationToken if the token is missing, expired, or already used.
+// user with the chosen password, atomically marking the token used.
+// Returns [ErrInvalidRegistrationToken] if the token is missing, expired, or already used.
 func (s *Service) CompleteRegistration(ctx context.Context, inp CompleteRegistrationInput) error {
 	passwordHash, err := HashPassword(inp.Password)
 	if err != nil {
