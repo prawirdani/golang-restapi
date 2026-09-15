@@ -19,6 +19,9 @@ type Authorizer interface {
 	// RegisterPermissions merges an entity's role->permission table into the
 	// in-memory authorization table. Called once per entity at startup.
 	RegisterPermissions(perms PermissionTable)
+
+	// ListPermission returns slice of Permission for current active actor on the session.
+	ListPermission(ctx context.Context) ([]Permission, error)
 }
 
 type authorizer struct {
@@ -67,6 +70,34 @@ func (a *authorizer) RequireSelfOr(ctx context.Context, userID uuid.UUID, perm P
 	}
 
 	return a.can(rbacCtx.Actor.Role, perm)
+}
+
+// ListPermission implements [Authorizer].
+func (a *authorizer) ListPermission(ctx context.Context) ([]Permission, error) {
+	rbacCtx, err := GetContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	table := make(PermissionTable, len(a.table))
+
+	for role, perms := range a.table {
+		table[role] = make(map[Permission]struct{}, len(perms))
+		for perm := range perms {
+			table[role][perm] = struct{}{}
+		}
+	}
+
+	rolePerms := table[rbacCtx.Actor.Role]
+	perms := make([]Permission, 0, len(rolePerms))
+	for perm := range rolePerms {
+		perms = append(perms, perm)
+	}
+
+	return perms, nil
 }
 
 // can returns nil only when the role holds every requested permission.

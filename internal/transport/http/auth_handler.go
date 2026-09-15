@@ -2,6 +2,7 @@ package http
 
 import (
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,13 +34,12 @@ func NewAuthHandler(
 	}
 }
 
-func (h *AuthHandler) Routes(router fiber.Router) {
-	authenticator := Authenticator(h.cfg.Auth.JwtSecret)
+func (h *AuthHandler) Routes(router fiber.Router, auth *authenticatorMiddleware) {
 	router.Route("/auth", func(authRouter fiber.Router) {
 		authRouter.Post("/login", RateLimit(5, 1*time.Minute), h.login)
 
 		if h.cfg.App.InternalMode {
-			authRouter.Post("/register", authenticator, h.register)
+			authRouter.Post("/register", auth.Authenticate, h.register)
 		} else {
 			authRouter.Post("/register", h.register)
 		}
@@ -52,10 +52,11 @@ func (h *AuthHandler) Routes(router fiber.Router) {
 		authRouter.Get("/password/recover/:token", h.getPasswordRecoveryToken)
 		authRouter.Put("/password/reset", h.resetPassword)
 
-		authRouter.Use(authenticator).Route("/", func(r fiber.Router) {
+		authRouter.Use(auth.Authenticate).Route("/", func(r fiber.Router) {
 			r.Delete("/logout", h.logout)
 			r.Get("/me", h.getCurrentUser)
 			r.Put("/password/change", h.changePassword)
+			r.Get("/permissions", h.listPermission)
 		})
 	})
 }
@@ -290,6 +291,23 @@ func (h *AuthHandler) changePassword(c fiber.Ctx) error {
 
 	return c.JSON(&Body{
 		Message: "Password has been changed successfully!",
+	})
+}
+
+func (h *AuthHandler) listPermission(c fiber.Ctx) error {
+	ctx := c.Context()
+	perms, err := h.authService.ListPermission(ctx)
+	if err != nil {
+		log.ErrorCtx(ctx, "Failed to get permissions", err)
+		return err
+	}
+	// sort for consistent etag
+	slices.Sort(perms)
+
+	return c.JSON(&Body{
+		Data: map[string]any{
+			"permissions": perms,
+		},
 	})
 }
 

@@ -2,27 +2,23 @@ package http
 
 import (
 	"github.com/gofiber/fiber/v3"
-	"github.com/prawirdani/golang-restapi/config"
 	"github.com/prawirdani/golang-restapi/internal/rbac"
 	"github.com/prawirdani/golang-restapi/internal/user"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 
 type UserHandler struct {
-	cfg         *config.Config
 	userService *user.Service
 }
 
-func NewUserHandler(cfg *config.Config, userService *user.Service) *UserHandler {
+func NewUserHandler(userService *user.Service) *UserHandler {
 	return &UserHandler{
-		cfg:         cfg,
 		userService: userService,
 	}
 }
 
-func (h *UserHandler) Routes(router fiber.Router) {
-	authenticator := Authenticator(h.cfg.Auth.JwtSecret)
-	router.Use(authenticator).Route("/users", func(router fiber.Router) {
+func (h *UserHandler) Routes(router fiber.Router, auth *authenticatorMiddleware) {
+	router.Use(auth.Authenticate).Route("/users", func(router fiber.Router) {
 		router.Put("/", h.updateUser)
 		router.Delete("/profile-picture", h.deleteProfilePicture)
 		router.Put("/profile-picture", h.changeProfilePicture)

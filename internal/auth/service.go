@@ -170,7 +170,7 @@ func (s *Service) CompleteRegistration(ctx context.Context, inp CompleteRegistra
 	return s.transactor.Transact(ctx, func(ctx context.Context) error {
 		regToken, err := s.authRepo.GetRegistrationToken(ctx, sum)
 		if err != nil {
-			// Mirror ResetPassword: an unknown token is an auth failure, not a 404.
+			//  an unknown token is an auth failure, not a 404.
 			if errors.Is(err, apperr.ErrNotFound) {
 				return ErrInvalidRegistrationToken
 			}
@@ -534,6 +534,10 @@ func (s *Service) ChangePassword(
 			EntityID: userID.String(),
 		})
 	})
+}
+
+func (s *Service) ListPermission(ctx context.Context) ([]rbac.Permission, error) {
+	return s.authorizer.ListPermission(ctx)
 }
 
 func (s *Service) generateAccessToken(userID, sessID uuid.UUID, role rbac.Role) (string, error) {

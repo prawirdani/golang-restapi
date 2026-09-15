@@ -2,27 +2,22 @@ package http
 
 import (
 	"github.com/gofiber/fiber/v3"
-	"github.com/prawirdani/golang-restapi/config"
 	"github.com/prawirdani/golang-restapi/internal/audit"
 )
 
 type AuditHandler struct {
-	cfg     *config.Config
 	service *audit.Service
 }
 
-func NewAuditHandler(cfg *config.Config, service *audit.Service) *AuditHandler {
+func NewAuditHandler(service *audit.Service) *AuditHandler {
 	return &AuditHandler{
-		cfg:     cfg,
 		service: service,
 	}
 }
 
-func (h *AuditHandler) Routes(router fiber.Router) {
-	authenticator := Authenticator(h.cfg.Auth.JwtSecret)
-
+func (h *AuditHandler) Routes(router fiber.Router, auth *authenticatorMiddleware) {
 	router.Route("/audit", func(r fiber.Router) {
-		r.Get("/", authenticator, h.list)
+		r.Get("/", auth.Authenticate, h.list)
 	})
 }
 

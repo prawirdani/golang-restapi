@@ -15,52 +15,60 @@ import (
 	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 
-func Authenticator(jwtSecret string) fiber.Handler {
-	return func(c fiber.Ctx) error {
-		tokenStr := c.Cookies(AccessTokenCookie)
+type authenticatorMiddleware struct {
+	jwtSecret string
+}
 
-		// If token doesn't exist in cookie, retrieve from Authorization header
-		if tokenStr == "" {
-			authHeader := c.Get("Authorization")
-			if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
-				tokenStr = after
-			}
-		}
-
-		// If missing, return unauthorized error
-		if tokenStr == "" {
-			return ErrReqUnauthorized
-		}
-
-		// Validate token
-		claims, err := auth.VerifyAccessToken(jwtSecret, tokenStr)
-		if err != nil {
-			return err
-		}
-
-		// Inject actor context
-		uid := claims.UserID
-		ctx := rbac.WithContext(c.Context(), rbac.Context{
-			Actor: rbac.Actor{
-				UserID: &uid,
-				Role:   claims.Role,
-			},
-			SessionID: claims.SessionID,
-		})
-
-		// Inject user and session id to logger context
-		ctx = log.WithContext(
-			ctx,
-			log.Group(
-				"auth",
-				"uid", claims.UserID,
-				"sid", claims.SessionID,
-			),
-		)
-
-		c.SetContext(ctx)
-		return c.Next()
+func NewAuthenticatorMiddleware(jwtSecret string) *authenticatorMiddleware {
+	return &authenticatorMiddleware{
+		jwtSecret: jwtSecret,
 	}
+}
+
+func (am *authenticatorMiddleware) Authenticate(c fiber.Ctx) error {
+	tokenStr := c.Cookies(AccessTokenCookie)
+
+	// If token doesn't exist in cookie, retrieve from Authorization header
+	if tokenStr == "" {
+		authHeader := c.Get("Authorization")
+		if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+			tokenStr = after
+		}
+	}
+
+	// If missing, return unauthorized error
+	if tokenStr == "" {
+		return ErrReqUnauthorized
+	}
+
+	// Validate token
+	claims, err := auth.VerifyAccessToken(am.jwtSecret, tokenStr)
+	if err != nil {
+		return err
+	}
+
+	// Inject actor context
+	uid := claims.UserID
+	ctx := rbac.WithContext(c.Context(), rbac.Context{
+		Actor: rbac.Actor{
+			UserID: &uid,
+			Role:   claims.Role,
+		},
+		SessionID: claims.SessionID,
+	})
+
+	// Inject user and session id to logger context
+	ctx = log.WithContext(
+		ctx,
+		log.Group(
+			"auth",
+			"uid", claims.UserID,
+			"sid", claims.SessionID,
+		),
+	)
+
+	c.SetContext(ctx)
+	return c.Next()
 }
 
 func RateLimit(max int, exp time.Duration) fiber.Handler {
