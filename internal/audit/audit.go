@@ -4,6 +4,7 @@ package audit
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -24,13 +25,15 @@ type Action string
 // serialized to JSONB by the Recorder implementation; nil means "no state"
 // (e.g. Prev is nil on create, Next is nil on delete).
 type Entry struct {
-	ActorID  nullable.Nullable[uuid.UUID] // nil if executed by system
-	Action   Action                       // event name, e.g. "user.change-profile-picture"
-	Entity   string                       // logical entity name (indexed), e.g. "user"
-	EntityID string                       // affected entity's identifier
-	Prev     any                          // state before the change (nil if not applicable)
-	Next     any                          // state after the change (nil if not applicable)
-	Meta     map[string]any               // per-entry metadata (nil if none)
+	ID        int                          `db:"id"         json:"id"`
+	ActorID   nullable.Nullable[uuid.UUID] `db:"actor_id"   json:"actor_id"`  // nil if executed by system
+	Action    Action                       `db:"action"     json:"action"`    // event name, e.g. "user.change-profile-picture"
+	Entity    string                       `db:"entity"     json:"entity"`    // logical entity name (indexed), e.g. "user"
+	EntityID  string                       `db:"entity_id"  json:"entity_id"` // affected entity's identifier
+	Prev      any                          `db:"prev"       json:"prev"`      // state before the change (nil if not applicable)
+	Next      any                          `db:"next"       json:"next"`      // state after the change (nil if not applicable)
+	Meta      map[string]any               `db:"meta"       json:"meta"`      // per-entry metadata (nil if none)
+	CreatedAt time.Time                    `db:"created_at" json:"created_at"`
 }
 
 // FillActorMeta fills ActorID field and Meta.
@@ -60,5 +63,4 @@ type Recorder interface {
 
 type Reader interface {
 	List(ctx context.Context) ([]Entry, error)
-	Get(ctx context.Context, id int) (Entry, error)
 }

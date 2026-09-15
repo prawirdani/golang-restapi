@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/prawirdani/golang-restapi/internal/audit"
 )
 
@@ -14,6 +15,20 @@ type auditRepository struct {
 
 func NewAuditRepository(db *DB) *auditRepository {
 	return &auditRepository{db: db}
+}
+
+// List implements [audit.Reader].
+func (r *auditRepository) List(ctx context.Context) ([]audit.Entry, error) {
+	conn := r.db.GetConn(ctx)
+
+	query := "SELECT * FROM audit_logs"
+	entries := make([]audit.Entry, 0)
+
+	if err := pgxscan.Select(ctx, conn, &entries, query); err != nil {
+		return nil, err
+	}
+
+	return entries, nil
 }
 
 // Record implements [audit.Recorder].

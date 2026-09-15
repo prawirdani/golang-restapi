@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/prawirdani/golang-restapi/config"
+	"github.com/prawirdani/golang-restapi/internal/audit"
 	"github.com/prawirdani/golang-restapi/internal/auth"
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/postgres"
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/r2"
@@ -12,8 +13,9 @@ import (
 )
 
 type Services struct {
-	UserService *user.Service
-	AuthService *auth.Service
+	UserService  *user.Service
+	AuthService  *auth.Service
+	AuditService *audit.Service
 }
 
 // Container holds all application dependencies
@@ -48,12 +50,12 @@ func NewContainer(
 	// Repos init
 	userRepo := postgres.NewUserRepository(pg)
 	authRepo := postgres.NewAuthRepository(pg)
-	auditRecorder := postgres.NewAuditRepository(pg)
+	auditRepo := postgres.NewAuditRepository(pg)
 
 	authorizer := rbac.NewAuthorizer()
 
 	// Setup Services
-	userService := user.NewService(pg, userRepo, r2Storage, authorizer, auditRecorder)
+	userSvc := user.NewService(pg, userRepo, r2Storage, authorizer, auditRepo)
 
 	authEventProducer := redisInfra.NewAuthEventProducer(rdb)
 	authSvc := auth.NewService(
@@ -64,16 +66,18 @@ func NewContainer(
 		authorizer,
 		authEventProducer,
 		redisThrottler,
-		auditRecorder,
+		auditRepo,
 	)
+	auditSvc := audit.NewAuditService(authorizer, auditRepo)
 
 	c := &Container{
 		Config: cfg,
 		pg:     pg,
 		rdb:    rdb,
 		Services: &Services{
-			UserService: userService,
-			AuthService: authSvc,
+			UserService:  userSvc,
+			AuthService:  authSvc,
+			AuditService: auditSvc,
 		},
 	}
 

@@ -149,10 +149,12 @@ func (s *Server) setupHandlers() {
 	// Initialize Handlers
 	userHandler := http.NewUserHandler(s.container.Config, svcs.UserService)
 	authHandler := http.NewAuthHandler(s.container.Config, svcs.AuthService, svcs.UserService)
+	auditHandler := http.NewAuditHandler(s.container.Config, svcs.AuditService)
 
 	// Register API routes
 	s.app.Route("/api", func(router fiber.Router) {
 		authHandler.Routes(router)
 		userHandler.Routes(router)
+		auditHandler.Routes(router)
 	})
 }
