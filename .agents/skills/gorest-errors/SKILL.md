@@ -40,9 +40,9 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
 
 4. **Wrap internal errors with operation context** using `fmt.Errorf("op name: %w", err)` — lowercase op, no trailing punctuation. Sentinel `errors.New("... is nil")` is allowed only for nil-receiver guards at the top of repo methods.
 
-5. **HTTP transport maps kinds to statuses** via `domainErrStatusMap` in `internal/transport/http/error.go:222-229` (NotFound→404, Validation→422, Conflict→409, Forbidden→403, Unauthorized→401, Throttled→429). Never hardcode a status mapping elsewhere. `httpx.NormalizeError` also handles deadline (504), client cancel (499), malformed JSON (400), and validator errors (422).
+5. **HTTP transport maps kinds to statuses** via `appErrStatusMap` in `internal/transport/http/error.go` (NotFound→404, Validation→422, Conflict→409, Forbidden→403, Unauthorized→401, Throttled→429). Never hardcode a status mapping elsewhere. `http.ParseError` also handles deadline (504), client cancel (499), malformed JSON (400), validator errors (422), and oversized bodies (413). Validator failures surface as `details: map[string][]string` (field → messages).
 
-6. **Handler-level errors are `httpx.Error` sentinels** (`ErrReqUnauthorized`, `ErrMultipartForm`, ...) with `SetMessage`/`SetDetails` copies. Handlers never hand-roll `http.Error(...)` — return the error and let `httpx.Handler` normalize it.
+6. **Handler-level errors are `http.Error` sentinels** (`ErrReqUnauthorized`, `ErrMultipartForm`, `ErrNotFoundHandler`, `ErrRateLimit`, ...) with `SetMessage`/`SetDetails` copies. Handlers never hand-roll `http.Error(...)` — return the error and let Fiber's `ErrorHandler` (`router.go`, via `ParseError`) serialize it.
 
 ## Checklist (Review mode)
 
@@ -57,6 +57,7 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
 
 - `internal/apperr/error.go` — Error, constructors, Is semantics; `internal/apperr/kind.go` — Kind + Kind* constants
 - `internal/auth/password_recovery_token.go` — sentinel definitions
-- `internal/infrastructure/postgres/user_repository.go:45-52` — translation pattern
+- `internal/infrastructure/postgres/user_repository.go` — `Store` translation pattern
 - `internal/infrastructure/postgres/common.go` — `uniqueViolationErr`, `noRowsErr`
-- `internal/transport/http/error.go` — NormalizeError, kind→status map
+- `internal/transport/http/error.go` — `Error`, sentinels, `ParseError`, kind→status map
+- `pkg/validator/error.go` — `ValidationError` (`Details map[string][]string`)

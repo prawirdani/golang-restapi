@@ -16,21 +16,22 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(m
 ## Rules
 
 1. **Layering is strict.** Dependencies flow one way:
-   - `internal/<entity>/` — models, service interfaces, service implementations, errors. ZERO infrastructure imports (no pgx, no redis, no chi).
+   - `internal/<entity>/` — models, service interfaces, service implementations, errors. ZERO infrastructure or transport imports (no pgx, no redis, no Fiber).
    - `internal/infrastructure/` — implementations (postgres repos, r2 storage, redis messaging/throttle). May import domain, never the reverse.
    - `internal/transport/http/` — handlers, middleware, context helpers. May import domain and pkg/, never infrastructure directly.
    - `pkg/` — framework-agnostic helpers (log, mailer, metrics, nullable, strings, validator).
    - `cmd/api` + `cmd/worker` — composition roots only.
 
-2. **Interfaces live next to their consumers in `internal/<entity>/`.** `internal/<entity>/repository.go` defines `Repository`; the service struct depends on the interface, not the concrete type (see `internal/auth/service.go:23-30`).
+2. **Interfaces live next to their consumers in `internal/<entity>/`**, conventionally in `internal/<entity>/interfaces.go`, and are **segmented by use** rather than one wide interface. `auth` declares `Repository` plus narrow `SessionReader`/`SessionWriter`, `TokenReader`/`TokenWriter`, `EventProducer`, and `UserRepository user.Repository` (a re-export of the user domain interface). A service depends on the interfaces it actually uses.
 
 3. **DI is manual and explicit** in `cmd/api/container.go`. One constructor per dependency, services composed top-down, mocks not allowed in production wiring. `NewContainer` receives only `cfg`, `pg *postgres.DB`, `rdb *redis.Client` and builds everything else.
 
-4. **Import aliases are fixed** — never import these packages unaliased or with a different alias:
-   - `httpx "github.com/prawirdani/golang-restapi/internal/transport/http"`
+4. **Import aliases are fixed** — never import these packages with a different alias:
    - `redisInfra "github.com/prawirdani/golang-restapi/internal/infrastructure/redis"`
    - `strs "github.com/prawirdani/golang-restapi/pkg/strings"`
    - `sharedMocks "github.com/prawirdani/golang-restapi/internal/testing/mocks"`
+
+   `internal/transport/http` is `package http` and is imported **unaliased** — there is no `httpx` alias.
 
 5. **Naming conventions are mandatory:**
    - Packages: short, lowercase, single-word (`auth`, `postgres`, `middleware`).
@@ -38,7 +39,7 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(m
    - Constructors: `New<Name>()`; errors: `Err` prefix; constants: PascalCase.
    - Every package gets a package-level godoc comment; every exported symbol gets a doc comment (`// Store implements [user.Repository].`).
 
-6. **Adding a feature follows a fixed order:** domain model + interface → postgres repository → service → handler → wire in `cmd/api/container.go` + routes in `cmd/api/server.go` → migration → mockery → unit tests.
+6. **Adding a feature follows a fixed order:** domain model + interface → postgres repository → service → handler → wire in `cmd/api/container.go` + routes in `cmd/api/server.go` → migration → mockery → unit tests. `cmd/api`, `cmd/worker` and `cmd/cli` are composition roots: construction of services belongs there, never inside `internal/`.
 
 ## Checklist (Review mode)
 
@@ -55,5 +56,6 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(m
 - `AGENTS.md` (Layout, Architecture, Conventions)
 - `cmd/api/container.go` — manual DI composition
 - `cmd/api/server.go` — route registration + middleware chain
+- `internal/auth/interfaces.go` — segmented consumer-side interfaces
 - `internal/auth/service.go` — service depending on interfaces
 - `.mockery.yml` — where mocks are generated and where they land

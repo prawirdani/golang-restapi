@@ -16,11 +16,11 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(m
 ## Rules
 
 1. **Mocks come from mockery only** (`.mockery.yml`):
-   - Entity-scoped: `internal/<entity>/mocks/` (e.g. `auth/mocks.Repository`, `user/mocks.UserRepository`).
+   - Entity-scoped: `internal/<entity>/mocks/` — `auth/mocks/{repository,user_repository,event_producer}.go`, `user/mocks/repository.go`.
    - Shared infrastructure: `internal/testing/mocks/` (`Transactor`, `Storage`, `File`, `Throttler`).
    - After adding/changing an interface, run `mockery` and commit the regenerated files. Never hand-write mock implementations.
 
-2. **Fixture pattern is fixed** (see `internal/auth/service_test.go:650`):
+2. **Fixture pattern is fixed** (see `setupTestFixture` in `internal/auth/service_test.go` and `internal/user/service_test.go`):
    ```go
    type testFixture struct {
        transactor *sharedMocks.Transactor
@@ -64,7 +64,9 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(m
 
 6. **Negative-path rigor:** when a failure must prevent later calls, rely on the mock's unexpected-call failure (constructed with `t`) instead of asserting call counts manually. A test that proves "mailer never called" simply registers no mailer expectation.
 
-7. **Run with the full suite:** `make test` (`go test -race -count=1 ./... -cover`) and `make lint` before finishing; tests must be deterministic (no sleeps, no real time dependencies — `time.Now()` offsets are fine).
+7. **Tests must be config-independent.** Never require a local `.env`: config tests set what they need with `t.Setenv` (`config/config_test.go`), and the whole suite must pass with `.env` absent. Tests are deterministic — no sleeps, no real time dependencies (`time.Now()` offsets are fine).
+
+8. **Run with the full suite:** `make test` (`go test -race -count=1 ./... -cover`) and `make lint` before finishing. Tests under `internal/transport/http/` (`middlewares_test.go`, `metrics_integration_test.go`) exercise middleware and do not use the entity fixture.
 
 ## Checklist (Review mode)
 
@@ -73,11 +75,12 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Bash(m
 - [ ] Transactor inner expectations registered inside `RunAndReturn`
 - [ ] Subtests named for behavior; assert/require used appropriately
 - [ ] `ErrorIs` against sentinels; negative paths proven by absent expectations
-- [ ] `make lint && make test` green
+- [ ] `make lint && make test` green without a local `.env`
 
 ## References
 
-- `internal/auth/service_test.go` — canonical fixture + transactor pattern
+- `internal/auth/service_test.go` — canonical fixture (`setupTestFixture`) + transactor pattern
 - `internal/user/service_test.go` — second example
+- `config/config_test.go` — `t.Setenv` config isolation
 - `.mockery.yml` — mock placement and regeneration config
 - `internal/testing/mocks/` — shared infrastructure mocks

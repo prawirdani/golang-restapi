@@ -67,18 +67,18 @@ migrations/              # Goose SQL migrations
 - Packages: short, lowercase, single-word (`auth`, `postgres`, `middleware`)
 - Files: snake_case (`user_repository.go`, `service_test.go`)
 - Constructors: `New<Name>()`; Errors: `Err` prefix; Constants: PascalCase
-- Import aliases: `httpx` (transport/http), `redisInfra` (infrastructure/redis), `strs` (pkg/strings)
+- Import aliases: `redisInfra` (infrastructure/redis), `strs` (pkg/strings), `sharedMocks` (internal/testing/mocks). `internal/transport/http` is `package http` and is imported unaliased.
 - Add package-level godoc to every new package/entity.
 
-**Handlers** — signature `func(c *httpx.Context) error`, wrapped by `httpx.Handler()`. Return errors; never write error responses manually.
+**Handlers** — signature `func(c fiber.Ctx) error`, mounted through a `Routes` method called from `setupHandlers`. Return errors; never write error responses manually. Respond with the `Body` envelope **by value** — it is sparse (`data`/`message` use `omitempty`, `meta` uses `omitzero`) and has no custom `MarshalJSON`.
 
 ```go
-func (h *AuthHandler) Login(c *httpx.Context) error {
-    return c.JSON(&httpx.Body{Data: result, Message: "success"})
+func (h *AuthHandler) Login(c fiber.Ctx) error {
+    return c.JSON(Body{Data: result})
 }
 ```
 
-**Errors** — `apperr.Error` with `Kind` (`KindValidation`, `KindNotFound`, `KindConflict`, `KindUnauthorized`, `KindForbidden`). Immutable (`WithDetails`/`SetMessage` return copies), supports `errors.Is`. `httpx.NormalizeError` maps kinds to HTTP status.
+**Errors** — `apperr.Error` with `Kind` (`KindValidation`, `KindNotFound`, `KindConflict`, `KindUnauthorized`, `KindForbidden`, `KindThrottled`). Immutable (`WithDetails`/`SetMessage` return copies), supports `errors.Is`. `http.ParseError`, run by the Fiber `ErrorHandler`, maps kinds to HTTP status.
 
 **Transactions** — wrap multi-step writes in `s.transactor.Transact`. Repositories detect the tx via `db.GetConn(ctx)` and reuse the connection (adding `FOR UPDATE`). Rollback/commit run on `context.WithoutCancel(ctx)` with a 5s timeout so a cancelled request ctx doesn't destroy the pooled connection.
 
@@ -111,10 +111,10 @@ Project-specific skills in `.agents/skills/` encode this repo's style, architect
 
 - **gorest-architecture** — layering, dependency direction, interfaces, DI wiring, aliases, naming
 - **gorest-errors** — apperr error constructors/kinds, immutable copies, repo error translation
-- **gorest-handlers** — httpx handler signature, BindValidate, response envelope, cookies, multipart
-- **gorest-repositories** — pgx builders, pgxscan, tx-aware GetConn/FOR UPDATE, error mapping
-- **gorest-services** — Transact, post-commit side effects, nullable+Validate, async cleanup
-- **gorest-testing** — mockery placement, setupTestFixture, transactor expectations, subtests
+- **gorest-handlers** — fiber.Ctx handler signature, BindValidateJSON, sparse `Body` envelope, cookies, multipart
+- **gorest-repositories** — pgx + `Select` builders, pgxscan, tx-aware GetConn/FOR UPDATE, error mapping
+- **gorest-services** — Transact, audit-in-tx, post-commit side effects, per-domain permissions, nullable+Validate, async cleanup
+- **gorest-testing** — mockery placement, setupTestFixture, transactor expectations, subtests, config independence
 
 These supersede generic samber guidance where they overlap.
 
@@ -123,7 +123,7 @@ These supersede generic samber guidance where they overlap.
 1. Define model + service interface in `internal/<entity>/` (with godoc).
 2. Implement repository in `internal/infrastructure/postgres/`.
 3. Add service implementation in `internal/<entity>/`.
-4. Add handler in `internal/transport/http/handler/`.
+4. Add handler in `internal/transport/http/` (with a `Routes` method).
 5. Wire in `cmd/api/container.go`; register routes in `cmd/api/server.go` (`setupHandlers`).
 6. Add migration via `make migration:create`.
 7. Update `.mockery.yml` for new interfaces, run `mockery`.
