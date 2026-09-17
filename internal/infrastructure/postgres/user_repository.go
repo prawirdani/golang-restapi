@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/prawirdani/golang-restapi/internal/apperr"
+	"github.com/prawirdani/golang-restapi/internal/ports/repository"
 	"github.com/prawirdani/golang-restapi/internal/user"
 	strs "github.com/prawirdani/golang-restapi/pkg/strings"
 )
@@ -53,6 +54,48 @@ func (r *userRepository) Store(ctx context.Context, u *user.User) error {
 		return fmt.Errorf("store user: %w", err)
 	}
 	return nil
+}
+
+// List implements [user.Repository].
+func (r *userRepository) List(ctx context.Context, filter *user.Filter) ([]user.User, error) {
+	if filter == nil {
+		return nil, errors.New("filter is nil")
+	}
+
+	qb := Select(
+		"users",
+		"id",
+		"name",
+		"email",
+		"email_verified_at",
+		"phone",
+		"password",
+		"gender",
+		"role",
+		"profile_picture",
+		"created_at",
+		"updated_at",
+	)
+	qb.WhereNull("deleted_at")
+	repository.ApplyQuery(qb, filter)
+
+	conn := r.db.GetConn(ctx)
+	query, args := qb.SQL()
+
+	users := make([]user.User, 0)
+	if err := pgxscan.Select(ctx, conn, &users, query, args...); err != nil {
+		return nil, fmt.Errorf("list user: %w", err)
+	}
+
+	cQuery, cArgs := qb.CountSQL()
+	var totalData int
+	if err := pgxscan.Get(ctx, conn, &totalData, cQuery, cArgs...); err != nil {
+		return nil, fmt.Errorf("count list user: %w", err)
+	}
+
+	filter.SetMeta(totalData)
+
+	return users, nil
 }
 
 // GetByEmail implements [user.Repository] [auth.UserRepository].

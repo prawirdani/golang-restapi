@@ -74,7 +74,23 @@ type TokenWriter interface {
 	UpdatePasswordRecoveryToken(ctx context.Context, token *PasswordRecoveryToken) error
 }
 
-type UserRepository user.Repository
+// UserRepository is the slice of [user.Repository] that the auth flow needs.
+//
+// It is deliberately narrow: authentication reads and writes single users, so
+// it must not depend on operations it never performs (such as List).
+type UserRepository interface {
+	// Store creates a new user record.
+	Store(ctx context.Context, u *user.User) error
+
+	// GetByID retrieves a user by their unique identifier.
+	GetByID(ctx context.Context, userID uuid.UUID) (*user.User, error)
+
+	// GetByEmail retrieves a user by their email address.
+	GetByEmail(ctx context.Context, email string) (*user.User, error)
+
+	// Update persists changes to an existing user.
+	Update(ctx context.Context, u *user.User) error
+}
 
 // EventProducer defines the contract for publishing notification events.
 //

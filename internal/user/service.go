@@ -65,11 +65,11 @@ func NewService(
 	}
 }
 
-func (s *Service) ListUser(ctx context.Context) ([]User, error) {
+func (s *Service) ListUser(ctx context.Context, filter *Filter) ([]User, error) {
 	if err := s.authorizer.Require(ctx, PermRead); err != nil {
 		return nil, err
 	}
-	return nil, nil
+	return s.userRepo.List(ctx, filter)
 }
 
 func (s *Service) GetUserByID(ctx context.Context, userID uuid.UUID) (*User, error) {

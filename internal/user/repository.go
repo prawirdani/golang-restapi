@@ -17,6 +17,8 @@ type Repository interface {
 	// Returns [apperr.ErrNotFound] if no user exists with the given ID.
 	GetByID(ctx context.Context, userID uuid.UUID) (*User, error)
 
+	List(ctx context.Context, filter *Filter) ([]User, error)
+
 	// GetByEmail retrieves a user by their email address.
 	// Returns [apperr.ErrNotFound] if no user exists with the given email.
 	GetByEmail(ctx context.Context, email string) (*User, error)
