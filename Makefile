@@ -30,6 +30,14 @@ build:
 run:
 	./bin/api
 
+# Developer CLI. Run `make cli` (or `go run ./cmd/cli help`) for subcommands.
+cli:
+	@go run ./cmd/cli $(ARGS)
+
+# Print every registered permission code as a JS array (client registry).
+permissions:
+	@go run ./cmd/cli permissions
+
 # Makesure you have goose binary installed
 migration\:status:
 	@goose -dir migrations postgres "host=$(DB_HOST) port=$(DB_PORT) user=$(DB_USER) password=$(DB_PASSWORD) dbname=$(DB_NAME) sslmode=disable" status

@@ -19,14 +19,14 @@ import (
 // audit Actions (fine-grained events) share the "<entity>.<verb>[-<object>]"
 // grammar. Each Action is gated by the permission carrying its coarse verb, so
 // they are declared side by side to keep the two layers aligned.
+//
+// Only permissions with an enforcement point are declared: user creation is
+// gated in the auth domain (auth.register-user) and there is no delete-user
+// operation, so no user.create/user.delete here.
 const (
-	PermCreate rbac.Permission = "user.create"
 	PermRead   rbac.Permission = "user.read"
 	PermUpdate rbac.Permission = "user.update"
-	PermDelete rbac.Permission = "user.delete"
 
-	// Create-class action, gated by PermCreate.
-	ActionCreate audit.Action = "user.create"
 	// Update-class actions, all gated by PermUpdate.
 	ActionUpdate               audit.Action = "user.update"
 	ActionChangeProfilePicture audit.Action = "user.change-profile-picture"
@@ -34,8 +34,8 @@ const (
 )
 
 var permTables = rbac.PermissionTable{
-	rbac.RoleSystem: {PermCreate: {}, PermRead: {}, PermUpdate: {}, PermDelete: {}},
-	rbac.RoleAdmin:  {PermCreate: {}, PermRead: {}, PermUpdate: {}, PermDelete: {}},
+	rbac.RoleSystem: {PermRead: {}, PermUpdate: {}},
+	rbac.RoleAdmin:  {PermRead: {}, PermUpdate: {}},
 	rbac.RoleUser:   {}, // Self read and update through authorize.SelfOr
 }
 

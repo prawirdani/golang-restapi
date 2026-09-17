@@ -306,9 +306,7 @@ func (h *AuthHandler) listPermission(c fiber.Ctx) error {
 	slices.Sort(perms)
 
 	return c.JSON(&Body{
-		Data: map[string]any{
-			"permissions": perms,
-		},
+		Data: perms,
 	})
 }
 

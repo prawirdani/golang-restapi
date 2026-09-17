@@ -49,6 +49,24 @@ func (a *authorizer) RegisterPermissions(perms PermissionTable) {
 	}
 }
 
+// Permissions returns a copy of the full merged role->permission table, so
+// callers can inspect every registered permission without mutating state.
+func (a *authorizer) Permissions() PermissionTable {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	table := make(PermissionTable, len(a.table))
+	for role, perms := range a.table {
+		copied := make(map[Permission]struct{}, len(perms))
+		for perm := range perms {
+			copied[perm] = struct{}{}
+		}
+		table[role] = copied
+	}
+
+	return table
+}
+
 // Require implements [Authorizer].
 func (a *authorizer) Require(ctx context.Context, perms ...Permission) error {
 	rbacCtx, err := GetContext(ctx)
@@ -79,19 +97,7 @@ func (a *authorizer) ListPermission(ctx context.Context) ([]Permission, error) {
 		return nil, err
 	}
 
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	table := make(PermissionTable, len(a.table))
-
-	for role, perms := range a.table {
-		table[role] = make(map[Permission]struct{}, len(perms))
-		for perm := range perms {
-			table[role][perm] = struct{}{}
-		}
-	}
-
-	rolePerms := table[rbacCtx.Actor.Role]
+	rolePerms := a.Permissions()[rbacCtx.Actor.Role]
 	perms := make([]Permission, 0, len(rolePerms))
 	for perm := range rolePerms {
 		perms = append(perms, perm)
