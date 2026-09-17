@@ -14,7 +14,8 @@ func NewRouter(cfg *config.Config) *fiber.App {
 	}
 
 	router := fiber.New(fiber.Config{
-		TrustProxy: true,
+		EnableSplittingOnParsers: true, // Enable comma separated for multiple query param values
+		TrustProxy:               true,
 		TrustProxyConfig: fiber.TrustProxyConfig{
 			Proxies: trustedProxies,
 		},

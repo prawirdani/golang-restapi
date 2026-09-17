@@ -27,7 +27,7 @@ func (h *AuditHandler) list(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Data: entries,
 	})
 }

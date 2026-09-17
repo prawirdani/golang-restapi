@@ -19,9 +19,30 @@ func NewUserHandler(userService *user.Service) *UserHandler {
 
 func (h *UserHandler) Routes(router fiber.Router, auth *authenticatorMiddleware) {
 	router.Use(auth.Authenticate).Route("/users", func(router fiber.Router) {
+		router.Get("/", h.listuser)
 		router.Put("/", h.updateUser)
 		router.Delete("/profile-picture", h.deleteProfilePicture)
 		router.Put("/profile-picture", h.changeProfilePicture)
+	})
+}
+
+func (h *UserHandler) listuser(c fiber.Ctx) error {
+	ctx := c.Context()
+
+	filter := new(user.Filter)
+	if err := c.Bind().Query(filter); err != nil {
+		return err
+	}
+
+	users, err := h.userService.ListUser(ctx, filter)
+	if err != nil {
+		log.ErrorCtx(ctx, "Failed to list user", err)
+		return err
+	}
+
+	return c.JSON(Body{
+		Data: users,
+		Meta: filter.Meta(),
 	})
 }
 
@@ -43,7 +64,7 @@ func (h *UserHandler) updateUser(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Message: "user updated!",
 	})
 }
@@ -88,7 +109,7 @@ func (h *UserHandler) changeProfilePicture(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Message: "profile picture updated!",
 	})
 }
@@ -105,7 +126,7 @@ func (h *UserHandler) deleteProfilePicture(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Message: "profile picture deleted",
 	})
 }

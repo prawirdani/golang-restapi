@@ -76,7 +76,7 @@ func (h *AuthHandler) register(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(&Body{
+	return c.Status(fiber.StatusCreated).JSON(Body{
 		Message: "registration successful, check your email",
 	})
 }
@@ -96,7 +96,7 @@ func (h *AuthHandler) completeRegistration(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(&Body{
+	return c.Status(fiber.StatusCreated).JSON(Body{
 		Message: "registration completed",
 	})
 }
@@ -114,7 +114,7 @@ func (h *AuthHandler) getRegistrationToken(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Data: map[string]any{
 			"expires_at": token.ExpiresAt,
 			"used_at":    token.UsedAt,
@@ -141,7 +141,7 @@ func (h *AuthHandler) login(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Data: tokens,
 	})
 }
@@ -160,7 +160,7 @@ func (h *AuthHandler) getCurrentUser(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Data: usr,
 	})
 }
@@ -193,7 +193,7 @@ func (h *AuthHandler) refreshAccessToken(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Data: tokens,
 	})
 }
@@ -210,7 +210,7 @@ func (h *AuthHandler) logout(c fiber.Ctx) error {
 
 	h.removeTokenCookies(c)
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Message: "logged out",
 	})
 }
@@ -231,7 +231,7 @@ func (h *AuthHandler) recoverPassword(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Message: "password recovery email has been sent",
 	})
 }
@@ -246,7 +246,7 @@ func (h *AuthHandler) getPasswordRecoveryToken(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Data: map[string]any{
 			"expires_at": tokenObj.ExpiresAt,
 			"used_at":    tokenObj.UsedAt,
@@ -267,7 +267,7 @@ func (h *AuthHandler) resetPassword(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Message: "Password has been reset successfully!",
 	})
 }
@@ -290,7 +290,7 @@ func (h *AuthHandler) changePassword(c fiber.Ctx) error {
 		return err
 	}
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Message: "Password has been changed successfully!",
 	})
 }
@@ -305,7 +305,7 @@ func (h *AuthHandler) listPermission(c fiber.Ctx) error {
 	// sort for consistent etag
 	slices.Sort(perms)
 
-	return c.JSON(&Body{
+	return c.JSON(Body{
 		Data: perms,
 	})
 }
