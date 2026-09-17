@@ -24,24 +24,28 @@ import (
 
 const (
 	PermChangePassword rbac.Permission = "auth.change-password"
-	PermRegisterUser   rbac.Permission = "auth.register-user" // new user registration by authorized roles (if internal mode is true)
+	PermRegisterUser   rbac.Permission = "auth.register-user" // new user registration by authorized roles (gated by internal mode=true)
 )
 
-// Audit Actions for the auth entity. Login/logout/change-password are gated by
-// the coarse auth permissions; failure and reuse events have no gate (they
-// record refused attempts) and are always best-effort.
-//
-//nolint:gosec // G101: audit action identifiers, not credentials
+var permTables = rbac.PermissionTable{
+	rbac.RoleSystem: {PermChangePassword: {}, PermRegisterUser: {}},
+	rbac.RoleAdmin:  {PermChangePassword: {}, PermRegisterUser: {}},
+	rbac.RoleUser:   {},
+}
+
+// Audit Actions for the auth entity. These record state changes (sessions,
+// tokens, passwords); refused attempts and reuse signals are emitted as WARN
+// logs instead of audit rows — they are security events, not state changes.
+// nolint:gosec
+// G101: audit action identifiers, not credentials
 const (
 	ActionRegister             audit.Action = "auth.register"
 	ActionCompleteRegistration audit.Action = "auth.complete-registration"
 	ActionLogin                audit.Action = "auth.login"
-	ActionLoginFailed          audit.Action = "auth.login-failed"
 	ActionLogout               audit.Action = "auth.logout"
 	ActionChangePassword       audit.Action = "auth.change-password"
 	ActionResetPassword        audit.Action = "auth.reset-password"
 	ActionRecoverPassword      audit.Action = "auth.password-recovery-request"
-	ActionTokenReuse           audit.Action = "auth.token-reuse-detected"
 )
 
 type Service struct {
@@ -65,17 +69,6 @@ func NewService(
 	throttler throttle.Throttler,
 	auditRecorder audit.Recorder,
 ) *Service {
-	permTables := rbac.PermissionTable{
-		rbac.RoleSystem: {PermChangePassword: {}},
-		rbac.RoleAdmin:  {PermChangePassword: {}},
-		rbac.RoleUser:   {},
-	}
-
-	if cfg.App.InternalMode {
-		permTables[rbac.RoleSystem][PermRegisterUser] = struct{}{}
-		permTables[rbac.RoleAdmin][PermRegisterUser] = struct{}{}
-	}
-
 	authorizer.RegisterPermissions(permTables)
 
 	return &Service{
@@ -87,15 +80,6 @@ func NewService(
 		throttler:     throttler,
 		authorizer:    authorizer,
 		audit:         auditRecorder,
-	}
-}
-
-// auditBestEffort records an audit entry without propagating failure to the
-// caller. Used for events that must not block the response — failed attempts
-// and unauthenticated flows where the action already refused or has no tx.
-func (s *Service) auditBestEffort(ctx context.Context, e audit.Entry) {
-	if err := s.audit.Record(ctx, e); err != nil {
-		log.WarnCtx(ctx, "failed to record audit event", "action", string(e.Action), "error", err)
 	}
 }
 
@@ -231,40 +215,23 @@ func (s *Service) Login(
 	inp LoginInput,
 ) (*TokenPair, error) {
 	usr, err := s.userRepo.GetByEmail(ctx, inp.Email)
-	if err != nil {
+	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
 		// Surface real DB errors (e.g. outage) instead of masking them as 401.
-		if !errors.Is(err, apperr.ErrNotFound) {
-			return nil, err
-		}
-		// Equalize timing with a dummy bcrypt compare so user enumeration
-		// via response time is not possible.
-		DummyVerify()
-		s.auditBestEffort(ctx, audit.Entry{
-			Action:   ActionLoginFailed,
-			Entity:   "user",
-			EntityID: inp.Email,
-			Meta:     map[string]any{"email": inp.Email},
-		})
-		return nil, ErrWrongCredentials
+		return nil, err
 	}
+
 	if usr == nil {
+		// Unknown email: equalize timing with a dummy bcrypt compare so user
+		// enumeration via response time is not possible. Logged, not audited —
+		// this is a security event, and the email is attacker-supplied.
 		DummyVerify()
-		s.auditBestEffort(ctx, audit.Entry{
-			Action:   ActionLoginFailed,
-			Entity:   "user",
-			EntityID: inp.Email,
-			Meta:     map[string]any{"email": inp.Email},
-		})
+		log.WarnCtx(ctx, "login failed", "email", inp.Email, "reason", "unknown_email")
 		return nil, ErrWrongCredentials
 	}
 
 	if err := VerifyPassword(inp.Password, usr.Password); err != nil {
-		s.auditBestEffort(ctx, audit.Entry{
-			Action:   ActionLoginFailed,
-			Entity:   "user",
-			EntityID: usr.ID.String(),
-			Meta:     map[string]any{"email": inp.Email},
-		})
+		log.WarnCtx(ctx, "login failed",
+			"email", inp.Email, "user_id", usr.ID.String(), "reason", "bad_password")
 		return nil, err
 	}
 
@@ -278,16 +245,21 @@ func (s *Service) Login(
 		return nil, err
 	}
 
-	if err := s.authRepo.StoreSession(ctx, sess); err != nil {
+	// Session and its audit record commit together, so a successful login is
+	// never silently unaudited.
+	if err := s.transactor.Transact(ctx, func(ctx context.Context) error {
+		if err := s.authRepo.StoreSession(ctx, sess); err != nil {
+			return err
+		}
+		return s.audit.Record(ctx, audit.Entry{
+			Action:   ActionLogin,
+			Entity:   "user",
+			EntityID: usr.ID.String(),
+			Meta:     map[string]any{"session_id": sess.ID.String()},
+		})
+	}); err != nil {
 		return nil, err
 	}
-
-	s.auditBestEffort(ctx, audit.Entry{
-		Action:   ActionLogin,
-		Entity:   "user",
-		EntityID: usr.ID.String(),
-		Meta:     map[string]any{"session_id": sess.ID.String()},
-	})
 
 	return &TokenPair{
 		AccessToken:  accessToken,
@@ -303,7 +275,6 @@ func (s *Service) RefreshAccessToken(
 	sum := HashStr(refreshToken)
 
 	tokenPair := new(TokenPair)
-	var reusedUserID, reusedSessionID uuid.UUID
 	err := s.transactor.Transact(ctx, func(ctx context.Context) error {
 		sess, err := s.authRepo.GetSessionByRefreshTokenHash(ctx, sum)
 		if err != nil {
@@ -324,8 +295,6 @@ func (s *Service) RefreshAccessToken(
 				"user_id", sess.UserID.String(),
 				"session_id", sess.ID.String(),
 			)
-			reusedUserID = sess.UserID
-			reusedSessionID = sess.ID
 			return ErrSessionInvalid
 		}
 
@@ -351,16 +320,6 @@ func (s *Service) RefreshAccessToken(
 		return s.authRepo.UpdateSession(ctx, sess)
 	})
 	if err != nil {
-		// Best-effort audit outside the tx (it rolled back); the reuse signal
-		// is the highest-value security event so it must not be lost.
-		if reusedSessionID != uuid.Nil {
-			s.auditBestEffort(ctx, audit.Entry{
-				Action:   ActionTokenReuse,
-				Entity:   "session",
-				EntityID: reusedSessionID.String(),
-				Meta:     map[string]any{"user_id": reusedUserID.String()},
-			})
-		}
 		return nil, err
 	}
 
@@ -428,7 +387,13 @@ func (s *Service) RecoverPassword(ctx context.Context, inp RecoverPasswordInput)
 			ResetURL: s.cfg.Auth.ResetPasswordFormEndpoint + "?token=" + tokenRaw,
 			Expiry:   s.cfg.Auth.PasswordRecoveryTokenTTL,
 		}
-		return nil
+
+		// Token and its audit record commit together.
+		return s.audit.Record(ctx, audit.Entry{
+			Action:   ActionRecoverPassword,
+			Entity:   "user",
+			EntityID: usr.ID.String(),
+		})
 	})
 	if err != nil {
 		return th, err
@@ -439,11 +404,6 @@ func (s *Service) RecoverPassword(ctx context.Context, inp RecoverPasswordInput)
 		return th, err
 	}
 
-	s.auditBestEffort(ctx, audit.Entry{
-		Action:   ActionRecoverPassword,
-		Entity:   "user",
-		EntityID: msg.To,
-	})
 	return th, nil
 }
 

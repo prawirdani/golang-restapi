@@ -208,7 +208,13 @@ func TestService_Login(t *testing.T) {
 		}
 
 		f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(mockUser, nil)
-		f.authRepo.EXPECT().StoreSession(ctx, mock.AnythingOfType("*auth.Session")).Return(nil)
+		// Session store and its audit record commit in one transaction.
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				f.authRepo.EXPECT().StoreSession(ctx, mock.AnythingOfType("*auth.Session")).Return(nil)
+				return fn(ctx)
+			})
 
 		tokenPair, err := f.service.Login(ctx, input)
 
