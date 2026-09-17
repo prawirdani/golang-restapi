@@ -80,7 +80,7 @@ func NewServer(container *Container, onPostShutdown func(error) error) (*Server,
 	}
 
 	// Health check: verifies the server's dependencies are reachable.
-	app.Get("/healthz", svr.health)
+	app.Get("/api/healthz", svr.health)
 
 	// Setup API routes
 	svr.setupHandlers()
