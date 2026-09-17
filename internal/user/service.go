@@ -3,11 +3,13 @@ package user
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prawirdani/golang-restapi/internal/apperr"
 	"github.com/prawirdani/golang-restapi/internal/audit"
 	"github.com/prawirdani/golang-restapi/internal/ports/repository"
 	"github.com/prawirdani/golang-restapi/internal/ports/storage"
@@ -20,22 +22,24 @@ import (
 // grammar. Each Action is gated by the permission carrying its coarse verb, so
 // they are declared side by side to keep the two layers aligned.
 //
-// Only permissions with an enforcement point are declared: user creation is
-// gated in the auth domain (auth.register-user) and there is no delete-user
-// operation, so no user.create/user.delete here.
+// Only permissions with an enforcement point are declared. User creation is
+// gated in the auth domain (auth.register-user), so there is no user.create
+// here.
 const (
 	PermRead   rbac.Permission = "user.read"
 	PermUpdate rbac.Permission = "user.update"
+	PermDelete rbac.Permission = "user.delete"
 
 	// Update-class actions, all gated by PermUpdate.
 	ActionUpdate               audit.Action = "user.update"
+	ActionDelete               audit.Action = "user.delete"
 	ActionChangeProfilePicture audit.Action = "user.change-profile-picture"
 	ActionDeleteProfilePicture audit.Action = "user.delete-profile-picture"
 )
 
 var permTables = rbac.PermissionTable{
-	rbac.RoleSystem: {PermRead: {}, PermUpdate: {}},
-	rbac.RoleAdmin:  {PermRead: {}, PermUpdate: {}},
+	rbac.RoleSystem: {PermRead: {}, PermUpdate: {}, PermDelete: {}},
+	rbac.RoleAdmin:  {PermRead: {}, PermUpdate: {}, PermDelete: {}},
 	rbac.RoleUser:   {}, // Self read and update through authorize.SelfOr
 }
 
@@ -131,6 +135,35 @@ func (s *Service) UpdateUser(ctx context.Context, userID uuid.UUID, input Update
 			EntityID: userID.String(),
 			Prev:     prev,
 			Next:     *usr,
+		})
+	})
+}
+
+func (s *Service) DeleteUser(ctx context.Context, userID uuid.UUID) error {
+	if err := s.authorizer.Require(ctx, PermDelete); err != nil {
+		return err
+	}
+
+	return s.transactor.Transact(ctx, func(ctx context.Context) error {
+		usr, err := s.userRepo.GetByID(ctx, userID)
+		if err != nil {
+			// Idempotent
+			if errors.Is(err, apperr.ErrNotFound) {
+				return nil
+			}
+			return err
+		}
+
+		if err := s.userRepo.Delete(ctx, usr); err != nil {
+			return err
+		}
+
+		return s.audit.Record(ctx, audit.Entry{
+			Action:   ActionDelete,
+			Entity:   "user",
+			EntityID: usr.ID.String(),
+			Prev:     nil,
+			Next:     nil,
 		})
 	})
 }

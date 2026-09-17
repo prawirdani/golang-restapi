@@ -29,4 +29,7 @@ type Repository interface {
 	// Update modifies an existing user record.
 	// Returns [ErrEmailConflict] if updating to an email that already exists.
 	Update(ctx context.Context, u *User) error
+
+	// Delete deletes (soft delete) an existing user record.
+	Delete(ctx context.Context, u *User) error
 }
