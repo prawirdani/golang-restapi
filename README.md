@@ -12,6 +12,7 @@ Personal Go RESTful API template with common 3 Layered architecture with followi
 cmd/
   api/                - HTTP server entrypoint (Fiber)
   worker/             - Message consumer/worker entrypoint
+  cli/                - Developer CLI (subcommands: permissions, ...)
 
 internal/
   auth/               - auth service, session, access token, password recovery
@@ -63,7 +64,7 @@ The auth system uses a split-token design with JWT access tokens and opaque refr
 
 - **Token Delivery**: Both tokens delivered as `HttpOnly` cookies (always; `Secure` in production). Access token has shorter TTL; refresh token persists for session lifetime (`AUTH_SESSION_TTL`, default 7d).
 
-- **Refresh Token Rotation**: Every token refresh generates a new access token and rotates the refresh token. Old token hash is replaced with new hash in the same transaction, preventing replay attacks. Refresh attempts against a revoked session are logged and audited as a reuse signal.
+- **Refresh Token Rotation**: Every token refresh generates a new access token and rotates the refresh token. Old token hash is replaced with new hash in the same transaction, preventing replay attacks. Refresh attempts against a revoked session are logged as a reuse signal (WARN).
 
 - **Session Management**: Sessions are server-side records in `sessions` table with: `user_id`, `refresh_token_hash`, `ip_addr`, `user_agent`, `created_at`, `accessed_at`, `expires_at`, `revoked_at`. Refresh re-captures the client IP/user-agent. Sessions auto-expire (TTL) and can be manually revoked. **Password reset or change revokes all sessions for the user** — every device is logged out.
 
@@ -77,7 +78,9 @@ Registration is invitation-based — no account exists until the invitee sets a 
 
 Flow: `POST /api/auth/register` (name + email) → rejects if the email is already registered → stores a single-use token (hashed, default 15m TTL via `AUTH_REGISTRATION_TOKEN_TTL`) → publishes to Redis Stream → worker emails the completion link → `POST /api/auth/register/complete` (token + password) creates the user and marks the token used, atomically.
 
-- `GET /api/auth/register/:token` exposes token status (expiry / used) so the completion form can render it.
+- `GET /api/auth/register/:token` exposes token status (expiry / used / revoked) so the completion form can render it.
+- Re-inviting an email **revokes** any outstanding token (latest invite wins) — `revoked_at` is tracked separately from `used_at`.
+- A token is single-use: consuming it twice, or presenting a missing/expired/revoked token, returns **401**. A consumed token never re-applies the password.
 - When `APP_INTERNAL_MODE=true`, `POST /api/auth/register` requires the `auth.register-user` permission (admin/system only) instead of being public.
 - The created user gets the default `user` role and has `email_verified_at` set (completing the invite proves the email).
 
@@ -109,14 +112,14 @@ Public:
 | Method | Path | Notes |
 | --- | --- | --- |
 | POST | `/api/auth/register` | start invitation (admin-only when `APP_INTERNAL_MODE`) |
-| POST | `/api/auth/register/complete` | set password, create account |
+| POST | `/api/auth/register/complete` | set password, create account; 5 req/min per IP |
 | GET | `/api/auth/register/:token` | inspect registration token |
 | POST | `/api/auth/login` | 5 req/min per IP |
 | POST | `/api/auth/refresh` | rotate refresh token |
 | POST | `/api/auth/password/recover` | 5 req/min per IP |
 | GET | `/api/auth/password/recover/:token` | inspect reset token |
 | PUT | `/api/auth/password/reset` | consume reset token |
-| GET | `/healthz` | liveness + dependency check |
+| GET | `/api/healthz` | liveness + dependency check |
 
 Authenticated (cookie or `Authorization: Bearer`):
 
@@ -139,6 +142,7 @@ Role-based, code-defined and in-memory — no permission tables to keep in sync:
 - Permissions use the `"<entity>.<verb>"` grammar (e.g. `user.update`). Each entity declares its own role→permission table and registers it with the authorizer at startup.
 - Services enforce with `Require(ctx, perms...)` (role must hold all) or `RequireSelfOr(ctx, userID, perm)` for ownership checks. The acting principal (user ID + role) is injected into the request context from the access token by the auth middleware.
 - `admin` and `system` hold the user-management permissions; `user` reaches its own record through `RequireSelfOr`.
+- `make permissions` (or `go run ./cmd/cli permissions`) dumps every registered code as a JavaScript array, replaying the real service registrations — use it to keep the client's permission registry in sync.
 
 ### Audit Logging
 
@@ -146,13 +150,14 @@ State-changing actions are recorded in `audit_logs`:
 
 - **Payloads**: `prev` / `next` JSONB snapshots (password hashes are never serialized), plus a `meta` JSONB with `ip_addr`, `user_agent`, `request_id`, `session_id`, and `actor_role`.
 - **Actor**: `actor_id` (NULL for system actions) and `actor_role`.
-- **Coverage**: auth events (register, complete-registration, login, failed login, logout, password change/reset, recovery request, refresh-token reuse) and user mutations.
-- **Atomicity**: success events are written inside the same transaction as the action; failure events (e.g. failed login) are best-effort and never block the response.
+- **Coverage**: state changes — auth (register, complete-registration, login, logout, password change/reset, recovery request) and user mutations.
+- **Atomicity**: every audit row is written inside the same transaction as the change it records, so a committed action is never silently unaudited.
+- **Not in `audit_logs`**: refused attempts (failed login) and refresh-token reuse are security *events*, not state changes. They are emitted as structured `WARN` logs so the business table stays clean and the unauthenticated login path takes no write.
 
 ### Observability & Health
 
 - **Metrics**: Prometheus request duration/count labelled by route template, method, and status, via a Fiber-native middleware. The exporter is served on `APP_PORT+1` in production; Grafana dashboards/provisioning live in `deployment/`.
-- **Health**: `GET /healthz` pings Postgres and Redis and returns `503` with the failing dependencies when either is unreachable.
+- **Health**: `GET /api/healthz` pings Postgres and Redis and returns `503` with the failing dependencies when either is unreachable.
 - **Security headers**: Fiber `helmet` (nosniff, frame deny, CSP, referrer/permissions policy); HSTS is configured in production and emitted on secure requests.
 - **Client IP**: forwarded headers are honored only from `TRUSTED_PROXIES`, so the recorded IP can't be spoofed by direct clients.
 

@@ -21,6 +21,8 @@ make test           # go test -race -count=1 ./... -cover
 make lint           # golangci-lint run
 make migration:create  # Scaffold a goose migration
 make migration:up      # Apply migrations
+make cli               # Developer CLI, e.g. `make cli ARGS="permissions"`
+make permissions       # Dump registered permission codes as a JS array
 mockery             # Regenerate mocks (reads .mockery.yml)
 ```
 
@@ -29,6 +31,7 @@ mockery             # Regenerate mocks (reads .mockery.yml)
 ```
 cmd/api/                 # API entrypoint: main.go, server.go (routes), container.go (DI)
 cmd/worker/              # Background worker entrypoint
+cmd/cli/                 # Developer CLI (subcommands: permissions, ...)
 config/                  # Env-based config (App, Postgres, Redis, Auth, CORS, SMTP, R2)
 internal/
   auth/                  # Auth business logic — JWT, sessions, password recovery, crypto
@@ -87,7 +90,7 @@ err := s.transactor.Transact(ctx, func(ctx context.Context) error {
 ```
 
 **Auth invariants**
-- Registration is invitation-based: `Register` stores a single-use hashed token (no user row); `CompleteRegistration` consumes the token and creates the user atomically. Under `APP_INTERNAL_MODE`, `Register` requires `PermRegisterUser`.
+- Registration is invitation-based: `Register` stores a single-use hashed token (no user row) and revokes any prior tokens for that email; `CompleteRegistration` consumes the token and creates the user atomically. A used, expired, or revoked token → `ErrInvalidRegistrationToken` (401). Hash the password only after the token validates. Under `APP_INTERNAL_MODE`, `Register` requires `PermRegisterUser`.
 - Password reset/change revokes **all** sessions for the user (inside the tx).
 - Unknown-email login path runs a dummy bcrypt compare (`DummyVerify`) — never branch on user existence via timing.
 - Refresh attempts against a revoked session → `log.WarnCtx` reuse signal, then `ErrSessionInvalid`.
