@@ -43,7 +43,7 @@ func (h *AuthHandler) Routes(router fiber.Router, auth *authenticatorMiddleware)
 		} else {
 			authRouter.Post("/register", h.register)
 		}
-		authRouter.Post("/register/complete", h.completeRegistration)
+		authRouter.Post("/register/complete", RateLimit(5, 1*time.Minute), h.completeRegistration)
 		authRouter.Get("/register/:token", h.getRegistrationToken)
 
 		authRouter.Post("/refresh", h.refreshAccessToken)
@@ -118,6 +118,7 @@ func (h *AuthHandler) getRegistrationToken(c fiber.Ctx) error {
 		Data: map[string]any{
 			"expires_at": token.ExpiresAt,
 			"used_at":    token.UsedAt,
+			"revoked_at": token.RevokedAt,
 		},
 	})
 }

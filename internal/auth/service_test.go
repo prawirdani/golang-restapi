@@ -53,6 +53,8 @@ func TestService_Register(t *testing.T) {
 			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
 			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
 				f.userRepo.EXPECT().GetByEmail(ctx, input.Email).Return(nil, apperr.ErrNotFound)
+				// A new invitation supersedes any outstanding one.
+				f.authRepo.EXPECT().RevokeRegistrationTokens(ctx, input.Email).Return(nil)
 				f.authRepo.EXPECT().
 					StoreRegistrationToken(ctx, mock.AnythingOfType("*auth.RegistrationToken")).
 					Return(nil)
@@ -90,6 +92,98 @@ func TestService_Register(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, user.ErrEmailConflict)
+	})
+}
+
+func TestService_CompleteRegistration(t *testing.T) {
+	newToken := func(t *testing.T) *auth.RegistrationToken {
+		t.Helper()
+		token, _, err := auth.NewRegistrationToken("John Doe", "john@example.com", time.Hour)
+		require.NoError(t, err)
+		return token
+	}
+
+	// expectGetToken wires the transact + token lookup for the non-success paths.
+	expectGetToken := func(f *testFixture, ctx context.Context, token *auth.RegistrationToken, err error) {
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				f.authRepo.EXPECT().
+					GetRegistrationToken(ctx, mock.AnythingOfType("[]uint8")).
+					Return(token, err)
+				return fn(ctx)
+			})
+	}
+
+	validInput := auth.CompleteRegistrationInput{Token: "regt_raw", Password: "newpassword123"}
+
+	t.Run("Success", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
+		token := newToken(t)
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+				f.authRepo.EXPECT().
+					GetRegistrationToken(ctx, mock.AnythingOfType("[]uint8")).
+					Return(token, nil)
+				f.authRepo.EXPECT().UpdateRegistrationToken(ctx, token).Return(nil)
+				f.userRepo.EXPECT().Store(ctx, mock.AnythingOfType("*user.User")).Return(nil)
+				return fn(ctx)
+			})
+
+		err := f.service.CompleteRegistration(ctx, validInput)
+
+		require.NoError(t, err)
+		assert.True(t, token.UsedAt.NotNull())
+	})
+
+	t.Run("Unknown token", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
+		expectGetToken(f, ctx, nil, apperr.ErrNotFound)
+
+		err := f.service.CompleteRegistration(ctx, validInput)
+
+		assert.ErrorIs(t, err, auth.ErrInvalidRegistrationToken)
+	})
+
+	t.Run("Already used", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
+		token := newToken(t)
+		token.Use() // consume it
+		expectGetToken(f, ctx, token, nil)
+
+		err := f.service.CompleteRegistration(ctx, validInput)
+
+		// A consumed token is rejected like any other invalid token.
+		assert.ErrorIs(t, err, auth.ErrInvalidRegistrationToken)
+	})
+
+	t.Run("Revoked token", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
+		token := newToken(t)
+		token.Revoke()
+		expectGetToken(f, ctx, token, nil)
+
+		err := f.service.CompleteRegistration(ctx, validInput)
+
+		assert.ErrorIs(t, err, auth.ErrInvalidRegistrationToken)
+	})
+
+	t.Run("Expired token", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
+		token := newToken(t)
+		token.ExpiresAt = time.Now().Add(-time.Hour)
+		expectGetToken(f, ctx, token, nil)
+
+		err := f.service.CompleteRegistration(ctx, validInput)
+
+		assert.ErrorIs(t, err, auth.ErrInvalidRegistrationToken)
 	})
 }
 

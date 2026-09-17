@@ -311,6 +311,63 @@ func (_c *Repository_GetSessionByRefreshTokenHash_Call) RunAndReturn(run func(ct
 	return _c
 }
 
+// RevokeRegistrationTokens provides a mock function for the type Repository
+func (_mock *Repository) RevokeRegistrationTokens(ctx context.Context, email string) error {
+	ret := _mock.Called(ctx, email)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RevokeRegistrationTokens")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = returnFunc(ctx, email)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// Repository_RevokeRegistrationTokens_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RevokeRegistrationTokens'
+type Repository_RevokeRegistrationTokens_Call struct {
+	*mock.Call
+}
+
+// RevokeRegistrationTokens is a helper method to define mock.On call
+//   - ctx context.Context
+//   - email string
+func (_e *Repository_Expecter) RevokeRegistrationTokens(ctx any, email any) *Repository_RevokeRegistrationTokens_Call {
+	return &Repository_RevokeRegistrationTokens_Call{Call: _e.mock.On("RevokeRegistrationTokens", ctx, email)}
+}
+
+func (_c *Repository_RevokeRegistrationTokens_Call) Run(run func(ctx context.Context, email string)) *Repository_RevokeRegistrationTokens_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *Repository_RevokeRegistrationTokens_Call) Return(err error) *Repository_RevokeRegistrationTokens_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *Repository_RevokeRegistrationTokens_Call) RunAndReturn(run func(ctx context.Context, email string) error) *Repository_RevokeRegistrationTokens_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RevokeUserSessions provides a mock function for the type Repository
 func (_mock *Repository) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
 	ret := _mock.Called(ctx, userID)

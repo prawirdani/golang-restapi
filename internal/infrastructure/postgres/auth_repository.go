@@ -257,3 +257,20 @@ func (r *authRepository) UpdateRegistrationToken(ctx context.Context, token *aut
 
 	return nil
 }
+
+// RevokeRegistrationTokens implements [auth.Repository]. It only touches
+// tokens that are still usable (not used, not already revoked).
+func (r *authRepository) RevokeRegistrationTokens(ctx context.Context, email string) error {
+	query := `
+		UPDATE registration_tokens
+		SET revoked_at = NOW()
+		WHERE email = $1 AND used_at IS NULL AND revoked_at IS NULL
+	`
+
+	conn := r.db.GetConn(ctx)
+	if _, err := conn.Exec(ctx, query, email); err != nil {
+		return fmt.Errorf("revoke registration tokens: %w", err)
+	}
+
+	return nil
+}

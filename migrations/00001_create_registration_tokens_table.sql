@@ -10,7 +10,9 @@ CREATE TABLE IF NOT EXISTS registration_tokens (
   token_hash BYTEA NOT NULL UNIQUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   expires_at TIMESTAMPTZ NOT NULL,
-  used_at TIMESTAMPTZ
+  used_at TIMESTAMPTZ,
+  -- set when the token is superseded by a newer invitation (distinct from used_at)
+  revoked_at TIMESTAMPTZ
 );
 
 -- +goose StatementEnd

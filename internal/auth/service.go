@@ -122,6 +122,12 @@ func (s *Service) Register(ctx context.Context, inp RegisterInput) error {
 			return user.ErrEmailConflict
 		}
 
+		// A new invitation supersedes any outstanding one for this email, so
+		// re-inviting invalidates the previous link (latest invite wins).
+		if err := s.authRepo.RevokeRegistrationTokens(ctx, inp.Email); err != nil {
+			return fmt.Errorf("revoking previous registration tokens: %w", err)
+		}
+
 		token, rawToken, err = NewRegistrationToken(inp.Name, inp.Email, s.cfg.Auth.RegistrationTokenTTL)
 		if err != nil {
 			return fmt.Errorf("creating registration token: %w", err)
@@ -158,27 +164,32 @@ func (s *Service) Register(ctx context.Context, inp RegisterInput) error {
 
 // CompleteRegistration consumes a valid registration token and creates the
 // user with the chosen password, atomically marking the token used.
-// Returns [ErrInvalidRegistrationToken] if the token is missing, expired, or already used.
+//
+// Returns [ErrInvalidRegistrationToken] for missing, already-consumed,
+// expired, or revoked tokens. A consumed token is never re-applied, so the
+// created account always keeps the password set on its first completion.
 func (s *Service) CompleteRegistration(ctx context.Context, inp CompleteRegistrationInput) error {
-	passwordHash, err := HashPassword(inp.Password)
-	if err != nil {
-		return err
-	}
-
 	sum := HashStr(inp.Token)
 
 	return s.transactor.Transact(ctx, func(ctx context.Context) error {
 		regToken, err := s.authRepo.GetRegistrationToken(ctx, sum)
 		if err != nil {
-			//  an unknown token is an auth failure, not a 404.
+			// Mirror ResetPassword: an unknown token is an auth failure, not a 404.
 			if errors.Is(err, apperr.ErrNotFound) {
 				return ErrInvalidRegistrationToken
 			}
 			return err
 		}
 
-		// TODO: if used, return early to make it idempotent???
-		if err := regToken.Use(); err != nil {
+		// Consumed, expired, or superseded by a newer invitation.
+		if !regToken.IsValid() {
+			return ErrInvalidRegistrationToken
+		}
+
+		// Hash only after the token is confirmed usable so a garbage token
+		// cannot force an expensive bcrypt on this unauthenticated route.
+		passwordHash, err := HashPassword(inp.Password)
+		if err != nil {
 			return err
 		}
 
@@ -187,7 +198,9 @@ func (s *Service) CompleteRegistration(ctx context.Context, inp CompleteRegistra
 			return err
 		}
 
-		// TODO: Prune all tokens that uses same email???
+		if err := regToken.Use(); err != nil {
+			return err
+		}
 		if err := s.authRepo.UpdateRegistrationToken(ctx, regToken); err != nil {
 			return err
 		}

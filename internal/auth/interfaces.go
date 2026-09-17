@@ -62,6 +62,10 @@ type TokenWriter interface {
 	// Only updates the UsedAt field.
 	UpdateRegistrationToken(ctx context.Context, token *RegistrationToken) error
 
+	// RevokeRegistrationTokens revokes all outstanding (unused, unrevoked)
+	// registration tokens for an email, so a newer invitation supersedes them.
+	RevokeRegistrationTokens(ctx context.Context, email string) error
+
 	// StorePasswordRecoveryToken persists new recovery password token.
 	StorePasswordRecoveryToken(ctx context.Context, token *PasswordRecoveryToken) error
 
