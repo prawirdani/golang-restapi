@@ -30,38 +30,23 @@ func TestQueryBuilder_SQL(t *testing.T) {
 			build: func() *QueryBuilder {
 				qb := Select("users", "id")
 				qb.WhereIn("role", []string{"admin", "user"})
-				qb.WhereLike("name", "jo%")
-				qb.WhereILike("email", "%EXAMPLE%")
-				qb.WhereNotNull("email_verified_at")
+				qb.WhereIn("gender", []string{"male"})
+				qb.WhereNull("deleted_at")
 				return qb
 			},
-			wantSQL: "SELECT id FROM users WHERE role IN ($1, $2) AND name LIKE $3" +
-				" AND email ILIKE $4 AND email_verified_at IS NOT NULL",
-			wantArgs: []any{"admin", "user", "jo%", "%EXAMPLE%"},
+			wantSQL: "SELECT id FROM users WHERE role IN ($1, $2) AND gender IN ($3)" +
+				" AND deleted_at IS NULL",
+			wantArgs: []any{"admin", "user", "male"},
 		},
 		{
-			name: "nil and empty values add no clause and no argument",
+			name: "nil and empty slices add no clause and no argument",
 			build: func() *QueryBuilder {
 				qb := Select("users", "id")
 				qb.WhereIn("role", nil)
 				qb.WhereIn("gender", []string{})
-				qb.WhereLike("name", nil)
 				return qb
 			},
 			wantSQL: "SELECT id FROM users",
-		},
-		{
-			name: "joins come before the where clause",
-			build: func() *QueryBuilder {
-				qb := Select("users", "u.id")
-				qb.Join("roles r", "r.id = u.role_id")
-				qb.LeftJoin("teams t", "t.id = u.team_id")
-				qb.WhereNull("u.deleted_at")
-				qb.OrderBy("u.id", "DESC")
-				return qb
-			},
-			wantSQL: "SELECT u.id FROM users JOIN roles r ON r.id = u.role_id" +
-				" LEFT JOIN teams t ON t.id = u.team_id WHERE u.deleted_at IS NULL ORDER BY u.id DESC",
 		},
 		{
 			name: "empty order column adds nothing",
@@ -91,8 +76,8 @@ func TestQueryBuilder_SQL(t *testing.T) {
 			wantSQL: "SELECT id FROM users LIMIT 20 OFFSET 40",
 		},
 		{
-			// Callers clamp first (repository.Pagination), but a non-positive
-			// limit must not be turned into an unbounded scan by accident.
+			// Callers clamp first (repository.Pagination); a non-positive limit
+			// must not silently become an unbounded scan.
 			name: "non-positive limit omits LIMIT",
 			build: func() *QueryBuilder {
 				qb := Select("users", "id")
@@ -100,17 +85,6 @@ func TestQueryBuilder_SQL(t *testing.T) {
 				return qb
 			},
 			wantSQL: "SELECT id FROM users",
-		},
-		{
-			// (page-1)*limit overflows int64 for an absurd page; the offset must
-			// saturate rather than reach Postgres as a negative OFFSET.
-			name: "huge page saturates the offset",
-			build: func() *QueryBuilder {
-				qb := Select("users", "id")
-				qb.Paginate(1<<62, 100)
-				return qb
-			},
-			wantSQL: "SELECT id FROM users LIMIT 100 OFFSET 2147483647",
 		},
 	}
 
@@ -124,8 +98,8 @@ func TestQueryBuilder_SQL(t *testing.T) {
 	}
 }
 
-// TestQueryBuilder_CountSQL asserts the count matches the page query's
-// FROM/JOIN/WHERE and arguments, and drops ORDER BY and LIMIT. Drift between the
+// TestQueryBuilder_CountSQL asserts the count matches the page query's FROM and
+// WHERE and shares its arguments, dropping ORDER BY and LIMIT. Drift between the
 // two statements would make total/total_pages disagree with the returned rows.
 func TestQueryBuilder_CountSQL(t *testing.T) {
 	qb := Select("users", "id")

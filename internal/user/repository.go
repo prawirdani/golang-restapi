@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/prawirdani/golang-restapi/internal/ports/repository"
 )
 
 // Repository defines the contract for user data persistence operations.
@@ -17,7 +18,9 @@ type Repository interface {
 	// Returns [apperr.ErrNotFound] if no user exists with the given ID.
 	GetByID(ctx context.Context, userID uuid.UUID) (*User, error)
 
-	List(ctx context.Context, filter *Filter) ([]User, error)
+	// List retrieves users matching the filter, along with the pagination
+	// metadata describing the full result set.
+	List(ctx context.Context, filter *Filter) ([]User, repository.PaginationMeta, error)
 
 	// GetByEmail retrieves a user by their email address.
 	// Returns [apperr.ErrNotFound] if no user exists with the given email.

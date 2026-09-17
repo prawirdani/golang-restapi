@@ -65,9 +65,12 @@ func NewService(
 	}
 }
 
-func (s *Service) ListUser(ctx context.Context, filter *Filter) ([]User, error) {
+func (s *Service) ListUser(
+	ctx context.Context,
+	filter *Filter,
+) ([]User, repository.PaginationMeta, error) {
 	if err := s.authorizer.Require(ctx, PermRead); err != nil {
-		return nil, err
+		return nil, repository.PaginationMeta{}, err
 	}
 	return s.userRepo.List(ctx, filter)
 }

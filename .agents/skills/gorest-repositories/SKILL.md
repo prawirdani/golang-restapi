@@ -33,9 +33,9 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
    ```
    - Insert: `generateInsertQuery(table, args)` — columns sorted alphabetically by the builder; append `RETURNING` for server-generated timestamps.
    - Update: `generateUpdateQuery(table, args, "id")` — pass WHERE columns last; add `"updated_at": "NOW()"` to args and `RETURNING updated_at`.
-   - Pagination is always bounded: `repository.Pagination` clamps page ≥ 1 and limit into 1..`MaxLimit` (default `DefaultLimit` = 20) inside `ApplyPagination`/`SetMeta`. Never hand raw request values to `Paginate` — route the filter through `repository.ApplyQuery` so a request with no query string still gets a `LIMIT`. Page counts use integer math: `(total + limit - 1) / limit`.
+   - Pagination is always bounded: `repository.Pagination` clamps page into 1..`MaxPage` and limit into 1..`MaxLimit` (default `DefaultLimit` = 20) in `ApplyPagination`, so a request with no query string still gets a `LIMIT`. Never hand raw request values to `Paginate`. The entity filter exposes one `Apply(repository.Query)` method (pointer receiver — it must persist those clamps) and `Pagination.Meta(total)` reports the result using integer page math `(total + limit - 1) / limit`.
    - Reads: explicit `SELECT` with aliased columns (`FROM users AS u WHERE u.email=$1`) or `SELECT *` for full-struct scans; fetch via `pgxscan.Get(ctx, conn, &dst, query, args...)` / `pgxscan.Select(...)` for lists.
-   - Dynamic list queries use the builder (`query_builder.go`): `Select(table, columns...)`, then sequential modifier calls — `qb.WhereIn(…)`, `qb.WhereNull(…)`, `qb.OrderBy(…)`, `qb.Paginate(…)` — and finally `qb.SQL()` for the statement or `qb.CountSQL()` for the total. **Only** `Join`/`LeftJoin`/`RightJoin` return the builder; the where/order/paginate methods implement `[repository.Query]` and return nothing, so they cannot be chained (`Select(…).WhereNull(…)` does not compile). Skip `qb.Where` — it is unused and its `?`-substitution is a footgun.
+   - Dynamic list queries use the builder (`query_builder.go`): `Select(table, columns...)`, then sequential calls — `qb.WhereIn(…)`, `qb.WhereNull(…)`, `qb.OrderBy(…)`, `qb.Paginate(…)` — and finally `qb.SQL()` for the statement or `qb.CountSQL()` for the total. The modifiers implement `[repository.Query]` and return nothing, so they cannot be chained (`Select(…).WhereNull(…)` does not compile).
 
 4. **Transaction awareness is automatic:** always resolve the connection via `conn := r.db.GetConn(ctx)`; when inside a service transaction it returns the tx. For reads that must lock, append `FOR UPDATE` when the connection is a tx:
    ```go
@@ -61,7 +61,7 @@ allowed-tools: Read Edit Write Glob Grep Bash(go:*) Bash(golangci-lint:*) Agent
 ## References
 
 - `internal/infrastructure/postgres/common.go` — `generateInsertQuery`/`generateUpdateQuery` + error helpers
-- `internal/infrastructure/postgres/query_builder.go` — `Select` builder (`Where*`/`Join`/`OrderBy`/`Paginate`, `SQL`/`CountSQL`)
+- `internal/infrastructure/postgres/query_builder.go` — `Select` builder (`WhereIn`/`WhereNull`/`OrderBy`/`Paginate`, `SQL`/`CountSQL`)
 - `internal/infrastructure/postgres/user_repository.go` — canonical insert/update/select/delete
 - `internal/infrastructure/postgres/auth_repository.go` — session/token repos with FOR UPDATE
 - `internal/infrastructure/postgres/postgres.go` — `DB.GetConn`/`IsTxConn`

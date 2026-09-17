@@ -15,20 +15,21 @@ type Filter struct {
 
 var userSortFields = map[string]string{
 	"id":         "id",
-	"name":       "name",
 	"created_at": "created_at",
 	"updated_at": "updated_at",
 }
 
-// ApplySort implements [repository.Sorter]
-func (f Filter) ApplySort(q repository.Query) {
-	f.Sort.ApplySort(q, userSortFields)
-}
-
-// ApplyFilter implements [repository.Filterer].
-func (f Filter) ApplyFilter(q repository.Query) {
+// Apply implements the filter contract for a user list query: clauses first,
+// then sort, then pagination.
+//
+// The pointer receiver is deliberate. ApplyPagination clamps Page and Limit in
+// place, and the pagination metadata is reported from the clamped values.
+func (f *Filter) Apply(q repository.Query) {
 	q.WhereIn("gender", f.Gender)
 	q.WhereIn("role", f.Role)
+
+	f.ApplySort(q, userSortFields)
+	f.ApplyPagination(q)
 }
 
 type UpdateUserInput struct {

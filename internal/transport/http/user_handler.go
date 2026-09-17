@@ -34,7 +34,7 @@ func (h *UserHandler) listuser(c fiber.Ctx) error {
 		return err
 	}
 
-	users, err := h.userService.ListUser(ctx, filter)
+	users, meta, err := h.userService.ListUser(ctx, filter)
 	if err != nil {
 		log.ErrorCtx(ctx, "Failed to list user", err)
 		return err
@@ -42,7 +42,7 @@ func (h *UserHandler) listuser(c fiber.Ctx) error {
 
 	return c.JSON(Body{
 		Data: users,
-		Meta: filter.Meta(),
+		Meta: meta,
 	})
 }
 

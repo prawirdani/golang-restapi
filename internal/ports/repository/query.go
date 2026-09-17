@@ -2,78 +2,26 @@ package repository
 
 import "strings"
 
-// Query is the minimal interface required by query modifiers.
+// Query is the interface a filter writes its clauses into. The postgres
+// QueryBuilder is its only implementation.
 type Query interface {
 	WhereIn(column string, value any)
-	WhereLike(column string, value any)
-	WhereILike(column string, value any)
 	WhereNull(column string)
-	WhereNotNull(column string)
 
 	OrderBy(column, order string)
 	Paginate(page, limit int)
 }
 
-// Filterer applies filtering to a query.
-type Filterer interface {
-	ApplyFilter(Query)
-}
-
-// Sorter applies sorting to a query.
-type Sorter interface {
-	ApplySort(Query)
-}
-
-// Paginator applies pagination to a query.
-type Paginator interface {
-	ApplyPagination(Query)
-	Meta() PaginationMeta
-	SetMeta(total int)
-}
-
-// ApplyQuery applies all capabilities implemented by v.
-//
-// A value may implement any combination of Filterer, Sorter,
-// and Paginator. Unsupported capabilities are simply skipped.
-func ApplyQuery(q Query, v any) {
-	if f, ok := v.(Filterer); ok {
-		f.ApplyFilter(q)
-	}
-
-	if s, ok := v.(Sorter); ok {
-		s.ApplySort(q)
-	}
-
-	if p, ok := v.(Paginator); ok {
-		p.ApplyPagination(q)
-	}
-}
-
 // Sort represents sorting parameters.
 //
-// Sort does not implement Sorter. Consumers should embed Sort
-// and implement Sorter themselves to define their allowed sort fields.
-//
-// Example:
-//
-//	type UserFilter struct {
-//		Sort
-//	}
-//
-//	func (f UserFilter) ApplySort(q Query) {
-//		f.Sort.ApplySort(q, map[string]string{
-//			"id":         "u.id",
-//			"name":       "u.name",
-//			"created_at": "u.created_at",
-//		})
-//	}
-//
-//	var _ Sorter = UserFilter{}
+// Consumers embed Sort and pass the columns they allow to [Sort.ApplySort], so a
+// client-supplied name is never interpolated into the statement.
 type Sort struct {
 	By    string `query:"sort"`
 	Order string `query:"order"`
 }
 
+// ApplySort adds an ORDER BY for s.By, but only when it appears in allowed.
 func (s Sort) ApplySort(q Query, allowed map[string]string) {
 	column, ok := allowed[s.By]
 	if !ok {
@@ -102,29 +50,49 @@ const (
 	// MaxLimit caps a requested limit so a single client cannot ask for the
 	// whole table.
 	MaxLimit = 100
+
+	// MaxPage caps the page number so the builder's (page-1)*limit offset stays
+	// well inside int range; beyond it a query returns no rows anyway.
+	MaxPage = 1_000_000
 )
 
 // Pagination represents pagination parameters.
 type Pagination struct {
 	Page  int `query:"page"`
 	Limit int `query:"limit"`
-	meta  PaginationMeta
 }
 
-// ApplyPagination implements [Paginator].
-//
-// Page and limit are clamped by [Pagination.normalize] before reaching the
-// query, so a request that omits them still produces a bounded statement.
+// ApplyPagination clamps page and limit into their supported ranges, then
+// applies them. Without the clamp a request that omits limit would reach the
+// builder as zero and produce a statement with no LIMIT at all.
 func (p *Pagination) ApplyPagination(q Query) {
 	p.normalize()
 	q.Paginate(p.Page, p.Limit)
 }
 
-// normalize clamps page and limit into supported ranges. Without it a request
-// with no limit would build a query with no LIMIT and read the whole table.
+// Meta describes pagination for a result set of total rows. Call it after
+// ApplyPagination so it reports the clamped page and limit.
+func (p Pagination) Meta(total int) PaginationMeta {
+	meta := PaginationMeta{
+		Page:  p.Page,
+		Limit: p.Limit,
+		Total: total,
+	}
+
+	if p.Limit > 0 {
+		meta.TotalPages = (total + p.Limit - 1) / p.Limit
+	}
+
+	return meta
+}
+
+// normalize clamps page and limit into supported ranges.
 func (p *Pagination) normalize() {
-	if p.Page < 1 {
+	switch {
+	case p.Page < 1:
 		p.Page = 1
+	case p.Page > MaxPage:
+		p.Page = MaxPage
 	}
 
 	switch {
@@ -132,27 +100,5 @@ func (p *Pagination) normalize() {
 		p.Limit = DefaultLimit
 	case p.Limit > MaxLimit:
 		p.Limit = MaxLimit
-	}
-}
-
-// Meta returns the pagination state recorded by [Pagination.SetMeta].
-func (p *Pagination) Meta() PaginationMeta {
-	return p.meta
-}
-
-// SetMeta records the total row count alongside the clamped page and limit.
-func (p *Pagination) SetMeta(total int) {
-	p.normalize()
-
-	totalPages := 0
-	if p.Limit > 0 {
-		totalPages = (total + p.Limit - 1) / p.Limit
-	}
-
-	p.meta = PaginationMeta{
-		Page:       p.Page,
-		Limit:      p.Limit,
-		Total:      total,
-		TotalPages: totalPages,
 	}
 }

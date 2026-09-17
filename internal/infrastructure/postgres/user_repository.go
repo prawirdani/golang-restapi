@@ -57,9 +57,15 @@ func (r *userRepository) Store(ctx context.Context, u *user.User) error {
 }
 
 // List implements [user.Repository].
-func (r *userRepository) List(ctx context.Context, filter *user.Filter) ([]user.User, error) {
+//
+// It returns the pagination metadata rather than writing it back onto the
+// filter, so the caller owns the response shape and cannot read stale state.
+func (r *userRepository) List(
+	ctx context.Context,
+	filter *user.Filter,
+) ([]user.User, repository.PaginationMeta, error) {
 	if filter == nil {
-		return nil, errors.New("filter is nil")
+		return nil, repository.PaginationMeta{}, errors.New("filter is nil")
 	}
 
 	qb := Select(
@@ -77,25 +83,23 @@ func (r *userRepository) List(ctx context.Context, filter *user.Filter) ([]user.
 		"updated_at",
 	)
 	qb.WhereNull("deleted_at")
-	repository.ApplyQuery(qb, filter)
+	filter.Apply(qb)
 
 	conn := r.db.GetConn(ctx)
 	query, args := qb.SQL()
 
 	users := make([]user.User, 0)
 	if err := pgxscan.Select(ctx, conn, &users, query, args...); err != nil {
-		return nil, fmt.Errorf("list user: %w", err)
+		return nil, repository.PaginationMeta{}, fmt.Errorf("list user: %w", err)
 	}
 
 	cQuery, cArgs := qb.CountSQL()
 	var totalData int
 	if err := pgxscan.Get(ctx, conn, &totalData, cQuery, cArgs...); err != nil {
-		return nil, fmt.Errorf("count list user: %w", err)
+		return nil, repository.PaginationMeta{}, fmt.Errorf("count list user: %w", err)
 	}
 
-	filter.SetMeta(totalData)
-
-	return users, nil
+	return users, filter.Meta(totalData), nil
 }
 
 // GetByEmail implements [user.Repository] [auth.UserRepository].
