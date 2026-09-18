@@ -69,14 +69,11 @@ func NewService(
 	}
 }
 
-func (s *Service) ListUser(
-	ctx context.Context,
-	filter *Filter,
-) ([]User, repository.PaginationMeta, error) {
+func (s *Service) ListUser(ctx context.Context, search *Search) ([]User, error) {
 	if err := s.authorizer.Require(ctx, PermRead); err != nil {
-		return nil, repository.PaginationMeta{}, err
+		return nil, err
 	}
-	return s.userRepo.List(ctx, filter)
+	return s.userRepo.List(ctx, search)
 }
 
 func (s *Service) GetUserByID(ctx context.Context, userID uuid.UUID) (*User, error) {

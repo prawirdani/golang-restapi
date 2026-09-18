@@ -8,7 +8,6 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/prawirdani/golang-restapi/internal/ports/repository"
 	"github.com/prawirdani/golang-restapi/internal/user"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -234,37 +233,31 @@ func (_c *Repository_GetByID_Call) RunAndReturn(run func(ctx context.Context, us
 }
 
 // List provides a mock function for the type Repository
-func (_mock *Repository) List(ctx context.Context, filter *user.Filter) ([]user.User, repository.PaginationMeta, error) {
-	ret := _mock.Called(ctx, filter)
+func (_mock *Repository) List(ctx context.Context, search *user.Search) ([]user.User, error) {
+	ret := _mock.Called(ctx, search)
 
 	if len(ret) == 0 {
 		panic("no return value specified for List")
 	}
 
 	var r0 []user.User
-	var r1 repository.PaginationMeta
-	var r2 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *user.Filter) ([]user.User, repository.PaginationMeta, error)); ok {
-		return returnFunc(ctx, filter)
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *user.Search) ([]user.User, error)); ok {
+		return returnFunc(ctx, search)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *user.Filter) []user.User); ok {
-		r0 = returnFunc(ctx, filter)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *user.Search) []user.User); ok {
+		r0 = returnFunc(ctx, search)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]user.User)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *user.Filter) repository.PaginationMeta); ok {
-		r1 = returnFunc(ctx, filter)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *user.Search) error); ok {
+		r1 = returnFunc(ctx, search)
 	} else {
-		r1 = ret.Get(1).(repository.PaginationMeta)
+		r1 = ret.Error(1)
 	}
-	if returnFunc, ok := ret.Get(2).(func(context.Context, *user.Filter) error); ok {
-		r2 = returnFunc(ctx, filter)
-	} else {
-		r2 = ret.Error(2)
-	}
-	return r0, r1, r2
+	return r0, r1
 }
 
 // Repository_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
@@ -274,20 +267,20 @@ type Repository_List_Call struct {
 
 // List is a helper method to define mock.On call
 //   - ctx context.Context
-//   - filter *user.Filter
-func (_e *Repository_Expecter) List(ctx any, filter any) *Repository_List_Call {
-	return &Repository_List_Call{Call: _e.mock.On("List", ctx, filter)}
+//   - search *user.Search
+func (_e *Repository_Expecter) List(ctx any, search any) *Repository_List_Call {
+	return &Repository_List_Call{Call: _e.mock.On("List", ctx, search)}
 }
 
-func (_c *Repository_List_Call) Run(run func(ctx context.Context, filter *user.Filter)) *Repository_List_Call {
+func (_c *Repository_List_Call) Run(run func(ctx context.Context, search *user.Search)) *Repository_List_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *user.Filter
+		var arg1 *user.Search
 		if args[1] != nil {
-			arg1 = args[1].(*user.Filter)
+			arg1 = args[1].(*user.Search)
 		}
 		run(
 			arg0,
@@ -297,12 +290,12 @@ func (_c *Repository_List_Call) Run(run func(ctx context.Context, filter *user.F
 	return _c
 }
 
-func (_c *Repository_List_Call) Return(users []user.User, paginationMeta repository.PaginationMeta, err error) *Repository_List_Call {
-	_c.Call.Return(users, paginationMeta, err)
+func (_c *Repository_List_Call) Return(users []user.User, err error) *Repository_List_Call {
+	_c.Call.Return(users, err)
 	return _c
 }
 
-func (_c *Repository_List_Call) RunAndReturn(run func(ctx context.Context, filter *user.Filter) ([]user.User, repository.PaginationMeta, error)) *Repository_List_Call {
+func (_c *Repository_List_Call) RunAndReturn(run func(ctx context.Context, search *user.Search) ([]user.User, error)) *Repository_List_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -1,6 +1,9 @@
 package user
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type Gender string
 
@@ -9,6 +12,14 @@ const (
 	GenderFemale Gender = "F"
 	GenderOther  Gender = "O"
 )
+
+// ParseGender canonicalises and validates a client-supplied gender, so filter
+// values can be accepted in any casing and unknown ones rejected.
+func ParseGender(s string) (Gender, bool) {
+	g := Gender(strings.ToUpper(strings.TrimSpace(s)))
+
+	return g, g.IsValid()
+}
 
 func (g Gender) IsValid() bool {
 	switch g {

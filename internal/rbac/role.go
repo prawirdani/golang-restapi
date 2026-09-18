@@ -1,5 +1,7 @@
 package rbac
 
+import "strings"
+
 // Role is a user role in the RBAC model.
 type Role string
 
@@ -18,4 +20,12 @@ func (r Role) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// ParseRole canonicalises and validates a client-supplied role name, so filter
+// values can be accepted in any casing and unknown ones rejected.
+func ParseRole(s string) (Role, bool) {
+	r := Role(strings.ToLower(strings.TrimSpace(s)))
+
+	return r, r.Valid()
 }

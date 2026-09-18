@@ -2,7 +2,6 @@ package http
 
 import (
 	"github.com/gofiber/fiber/v3"
-	"github.com/prawirdani/golang-restapi/internal/ports/repository"
 	"github.com/prawirdani/golang-restapi/pkg/validator"
 )
 
@@ -10,8 +9,8 @@ import (
 const MaxBodySize = 5 << 20 // 5 MB
 
 // Body is the JSON envelope for every successful response: the payload under
-// "data", an optional human-readable "message", and "meta" for paginated
-// collections.
+// "data", an optional human-readable "message", and "meta" describing the query
+// that produced it — the applied filter, the applied sort, and pagination.
 //
 // The envelope is sparse: Data and Message carry omitempty and Meta carries
 // omitzero, so only fields holding a value are emitted and an empty envelope
@@ -25,13 +24,13 @@ const MaxBodySize = 5 << 20 // 5 MB
 // Meta is a value tagged omitzero, not a pointer tagged omitempty: omitempty
 // never omits a struct, so a value field using it would be emitted as all
 // zeroes on every response. It is omitted only when genuinely zero, which a
-// paginated list never is — Pagination always applies a default limit.
+// list response never is — Pagination always applies a default limit.
 //
 // Errors use a separate envelope; see [Error] and [ParseError].
 type Body struct {
-	Data    any                       `json:"data,omitempty"`
-	Message string                    `json:"message,omitempty"`
-	Meta    repository.PaginationMeta `json:"meta,omitzero"`
+	Data    any    `json:"data,omitempty"`
+	Message string `json:"message,omitempty"`
+	Meta    any    `json:"meta,omitzero"`
 }
 
 func BindValidateJSON(c fiber.Ctx, dst any) error {

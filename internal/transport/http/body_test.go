@@ -18,7 +18,14 @@ import (
 // once: the envelope used to carry a pointer-receiver MarshalJSON, which made
 // the wire format depend on the caller remembering "&".
 func TestBodyEnvelope(t *testing.T) {
-	meta := repository.PaginationMeta{Page: 1, Limit: 20, Total: 42, TotalPages: 3}
+	// Meta is the whole query metadata. The body only cares that it is omitted
+	// while unset, so the instantiation used here is deliberately a plain one.
+	pagination := repository.PaginationMeta{Page: 1, Limit: 20, Total: 42, TotalPages: 3}
+
+	meta := repository.QueryMeta[map[string][]string]{
+		Filter:     map[string][]string{"role": {"admin"}},
+		Pagination: pagination,
+	}
 
 	tests := []struct {
 		name string
@@ -41,17 +48,24 @@ func TestBodyEnvelope(t *testing.T) {
 			want: `{}`,
 		},
 		{
-			name: "paginated",
+			name: "with query metadata",
 			body: Body{Data: []string{"a"}, Meta: meta},
-			want: `{"data":["a"],"meta":{"page":1,"limit":20,"total":42,"total_pages":3}}`,
+			want: `{"data":["a"],"meta":{"filter":{"role":["admin"]},"pagination":{"page":1,"limit":20,"total":42,"total_pages":3}}}`,
 		},
 		{
-			// Meta is a value tagged omitzero. Tagging it omitempty instead
-			// would emit "meta":{"page":0,...} on every response, since
-			// omitempty never omits a struct.
-			name: "zero meta is omitted",
-			body: Body{Data: []string{"a"}, Meta: repository.PaginationMeta{}},
-			want: `{"data":["a"]}`,
+			// The metadata itself is sparse: a field the query did not use is
+			// dropped, so pagination-only metadata carries no filter or sort.
+			name: "metadata without filter",
+			body: Body{Data: []string{"a"}, Meta: repository.QueryMeta[map[string][]string]{Pagination: pagination}},
+			want: `{"data":["a"],"meta":{"pagination":{"page":1,"limit":20,"total":42,"total_pages":3}}}`,
+		},
+		{
+			name: "metadata with sort",
+			body: Body{Data: []string{"a"}, Meta: repository.QueryMeta[map[string][]string]{
+				Sort:       repository.Sorting{By: "created_at", Order: "DESC"},
+				Pagination: pagination,
+			}},
+			want: `{"data":["a"],"meta":{"sort":{"by":"created_at","order":"DESC"},"pagination":{"page":1,"limit":20,"total":42,"total_pages":3}}}`,
 		},
 		{
 			// omitempty on an "any" field only drops an unset field: a typed

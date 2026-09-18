@@ -1,104 +1,46 @@
 package repository
 
-import "strings"
-
-// Query is the interface a filter writes its clauses into. The postgres
-// QueryBuilder is its only implementation.
+// Query is the minimal interface required by query modifiers.
 type Query interface {
 	WhereIn(column string, value any)
+	WhereLike(column string, value any)
+	WhereILike(column string, value any)
 	WhereNull(column string)
+	WhereNotNull(column string)
 
 	OrderBy(column, order string)
 	Paginate(page, limit int)
 }
 
-// Sort represents sorting parameters.
+// Filterer applies filtering to a query.
 //
-// Consumers embed Sort and pass the columns they allow to [Sort.ApplySort], so a
-// client-supplied name is never interpolated into the statement.
-type Sort struct {
-	By    string `query:"sort"`
-	Order string `query:"order"`
+// Implementations may sanitise here. This is the place to drop or canonicalise
+// values the domain does not recognise, so that a query filters on exactly the
+// values the response reports as applied.
+type Filterer interface {
+	ApplyFilter(Query)
 }
 
-// ApplySort adds an ORDER BY for s.By, but only when it appears in allowed.
-func (s Sort) ApplySort(q Query, allowed map[string]string) {
-	column, ok := allowed[s.By]
-	if !ok {
-		return
+// ApplyQuery applies all capabilities implemented by v.
+//
+// A value may implement any combination of Filterer, Sorter, and Paginator.
+// Unsupported capabilities are simply skipped.
+func ApplyQuery(q Query, v any) {
+	if f, ok := v.(Filterer); ok {
+		f.ApplyFilter(q)
 	}
 
-	order := strings.ToUpper(s.Order)
-	if order != "ASC" && order != "DESC" {
-		order = "ASC"
+	if s, ok := v.(Sorter); ok {
+		s.ApplySort(q)
 	}
 
-	q.OrderBy(column, order)
+	if p, ok := v.(Paginator); ok {
+		p.ApplyPagination(q)
+	}
 }
 
-type PaginationMeta struct {
-	Page       int `json:"page"`
-	Limit      int `json:"limit"`
-	Total      int `json:"total"`
-	TotalPages int `json:"total_pages"`
-}
-
-const (
-	// DefaultLimit is applied when a list request omits limit.
-	DefaultLimit = 20
-
-	// MaxLimit caps a requested limit so a single client cannot ask for the
-	// whole table.
-	MaxLimit = 100
-
-	// MaxPage caps the page number so the builder's (page-1)*limit offset stays
-	// well inside int range; beyond it a query returns no rows anyway.
-	MaxPage = 1_000_000
-)
-
-// Pagination represents pagination parameters.
-type Pagination struct {
-	Page  int `query:"page"`
-	Limit int `query:"limit"`
-}
-
-// ApplyPagination clamps page and limit into their supported ranges, then
-// applies them. Without the clamp a request that omits limit would reach the
-// builder as zero and produce a statement with no LIMIT at all.
-func (p *Pagination) ApplyPagination(q Query) {
-	p.normalize()
-	q.Paginate(p.Page, p.Limit)
-}
-
-// Meta describes pagination for a result set of total rows. Call it after
-// ApplyPagination so it reports the clamped page and limit.
-func (p Pagination) Meta(total int) PaginationMeta {
-	meta := PaginationMeta{
-		Page:  p.Page,
-		Limit: p.Limit,
-		Total: total,
-	}
-
-	if p.Limit > 0 {
-		meta.TotalPages = (total + p.Limit - 1) / p.Limit
-	}
-
-	return meta
-}
-
-// normalize clamps page and limit into supported ranges.
-func (p *Pagination) normalize() {
-	switch {
-	case p.Page < 1:
-		p.Page = 1
-	case p.Page > MaxPage:
-		p.Page = MaxPage
-	}
-
-	switch {
-	case p.Limit < 1:
-		p.Limit = DefaultLimit
-	case p.Limit > MaxLimit:
-		p.Limit = MaxLimit
-	}
+type QueryMeta[TFilter any] struct {
+	Filter     TFilter        `json:"filter,omitempty,omitzero"`
+	Sort       Sorting        `json:"sort,omitempty,omitzero"`
+	Pagination PaginationMeta `json:"pagination,omitempty,omitzero"`
 }

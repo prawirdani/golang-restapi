@@ -31,12 +31,12 @@ func (h *UserHandler) Routes(router fiber.Router, auth *authenticatorMiddleware)
 func (h *UserHandler) listuser(c fiber.Ctx) error {
 	ctx := c.Context()
 
-	filter := new(user.Filter)
+	filter := new(user.Search)
 	if err := c.Bind().Query(filter); err != nil {
 		return err
 	}
 
-	users, meta, err := h.userService.ListUser(ctx, filter)
+	users, err := h.userService.ListUser(ctx, filter)
 	if err != nil {
 		log.ErrorCtx(ctx, "Failed to list user", err)
 		return err
@@ -44,7 +44,7 @@ func (h *UserHandler) listuser(c fiber.Ctx) error {
 
 	return c.JSON(Body{
 		Data: users,
-		Meta: meta,
+		Meta: filter.Meta(),
 	})
 }
 
