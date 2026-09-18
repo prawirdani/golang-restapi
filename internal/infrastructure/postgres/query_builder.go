@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 )
@@ -10,6 +11,7 @@ import (
 type QueryBuilder struct {
 	table   string
 	columns []string
+	joins   []string
 	wheres  []string
 	args    []any
 	orderBy string
@@ -23,6 +25,24 @@ func Select(table string, columns ...string) *QueryBuilder {
 		table:   table,
 		columns: columns,
 	}
+}
+
+// Join adds an INNER JOIN.
+func (q *QueryBuilder) Join(table, on string) *QueryBuilder {
+	q.joins = append(q.joins, "JOIN "+table+" ON "+on)
+	return q
+}
+
+// LeftJoin adds a LEFT JOIN.
+func (q *QueryBuilder) LeftJoin(table, on string) *QueryBuilder {
+	q.joins = append(q.joins, "LEFT JOIN "+table+" ON "+on)
+	return q
+}
+
+// RightJoin adds a RIGHT JOIN.
+func (q *QueryBuilder) RightJoin(table, on string) *QueryBuilder {
+	q.joins = append(q.joins, "RIGHT JOIN "+table+" ON "+on)
+	return q
 }
 
 // WhereIn adds an IN condition.
@@ -65,6 +85,41 @@ func (q *QueryBuilder) WhereNull(column string) {
 	q.wheres = append(q.wheres, fmt.Sprintf("%s IS NULL", column))
 }
 
+// WhereNotNull Implements [repository.Query]
+func (q *QueryBuilder) WhereNotNull(column string) {
+	q.wheres = append(q.wheres, fmt.Sprintf("%s IS NOT NULL", column))
+}
+
+// WhereLike adds a LIKE condition.
+// Implements [repository.Query]
+func (q *QueryBuilder) WhereLike(column string, value any) {
+	if value == nil {
+		return
+	}
+
+	ph := q.addArg(value)
+
+	q.wheres = append(
+		q.wheres,
+		fmt.Sprintf("%s LIKE %s", column, ph),
+	)
+}
+
+// WhereILike adds a PostgreSQL ILIKE condition.
+// Implements [repository.Query]
+func (q *QueryBuilder) WhereILike(column string, value any) {
+	if value == nil {
+		return
+	}
+
+	ph := q.addArg(value)
+
+	q.wheres = append(
+		q.wheres,
+		fmt.Sprintf("%s ILIKE %s", column, ph),
+	)
+}
+
 // OrderBy adds an ORDER BY clause.
 // Implements [repository.Query]
 func (q *QueryBuilder) OrderBy(column, order string) {
@@ -82,8 +137,9 @@ func (q *QueryBuilder) OrderBy(column, order string) {
 // Paginate applies offset-based pagination.
 // Implements [repository.Query]
 //
-// A non-positive limit disables pagination. Callers clamp page and limit first
-// (see [repository.Pagination]), which keeps (page-1)*limit inside int range.
+// A non-positive limit disables pagination; callers are expected to clamp
+// first (see [repository.Pagination]). The offset saturates instead of being
+// allowed to overflow into a negative OFFSET.
 func (q *QueryBuilder) Paginate(page, limit int) {
 	if limit <= 0 {
 		return
@@ -92,7 +148,12 @@ func (q *QueryBuilder) Paginate(page, limit int) {
 	q.limit = limit
 
 	if page > 1 {
-		q.offset = (page - 1) * limit
+		offset := int64(page-1) * int64(limit)
+		if offset < 0 || offset > math.MaxInt32 {
+			offset = math.MaxInt32
+		}
+
+		q.offset = int(offset)
 	}
 }
 
@@ -111,6 +172,11 @@ func (q *QueryBuilder) SQL() (string, []any) {
 
 	sb.WriteString(" FROM ")
 	sb.WriteString(q.table)
+
+	if len(q.joins) > 0 {
+		sb.WriteByte(' ')
+		sb.WriteString(strings.Join(q.joins, " "))
+	}
 
 	if len(q.wheres) > 0 {
 		sb.WriteString(" WHERE ")
@@ -134,13 +200,21 @@ func (q *QueryBuilder) SQL() (string, []any) {
 	return sb.String(), q.args
 }
 
-// CountSQL returns the row count for the same FROM/WHERE as [QueryBuilder.SQL],
-// sharing its arguments and dropping ORDER BY and LIMIT.
+// CountSQL returns the row count for the same FROM/JOIN/WHERE as
+// [QueryBuilder.SQL], sharing its arguments and dropping ORDER BY and LIMIT.
+//
+// A one-to-many JOIN would over-count, so use COUNT(DISTINCT <base>.id) if
+// joins are ever added to a counted query.
 func (q *QueryBuilder) CountSQL() (string, []any) {
 	var b strings.Builder
 
 	b.WriteString("SELECT COUNT(*) FROM ")
 	b.WriteString(q.table)
+
+	if len(q.joins) > 0 {
+		b.WriteByte(' ')
+		b.WriteString(strings.Join(q.joins, " "))
+	}
 
 	if len(q.wheres) > 0 {
 		b.WriteString(" WHERE ")
