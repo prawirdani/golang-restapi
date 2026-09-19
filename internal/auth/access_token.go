@@ -18,6 +18,7 @@ import (
 
 var (
 	ErrAccessTokenExpired        = apperr.UnauthorizedErr("access token expired", "AUTH_EXPIRED")
+	ErrAccessTokenInvalid        = apperr.UnauthorizedErr("invalid access token", "AUTH_INVALID")
 	ErrAccessTokenClaimsNotFound = errors.New("access token claims not found in context")
 )
 
@@ -59,6 +60,9 @@ func SignAccessToken(
 }
 
 // VerifyAccessToken parses and validates the token, returning the claims if valid.
+// Every rejection except expiry is reported as ErrAccessTokenInvalid so callers
+// map to a 401 instead of leaking a malformed-token reason; the underlying cause
+// stays in the error chain for server-side logging.
 func VerifyAccessToken(secretKey, tokenStr string) (*AccessTokenClaims, error) {
 	token, err := jwt.ParseWithClaims(
 		tokenStr,
@@ -69,46 +73,40 @@ func VerifyAccessToken(secretKey, tokenStr string) (*AccessTokenClaims, error) {
 			}
 			return []byte(secretKey), nil
 		},
+		// exp is required: a token without it would never expire, which also
+		// makes the revocation TTLs meaningless.
+		jwt.WithExpirationRequired(),
 	)
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
 			return nil, ErrAccessTokenExpired
 		}
-		return nil, fmt.Errorf("parsing token: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrAccessTokenInvalid, err)
 	}
 
 	if token == nil || !token.Valid {
-		return nil, errors.New("invalid access token")
+		return nil, ErrAccessTokenInvalid
 	}
 
 	claims, ok := token.Claims.(*AccessTokenClaims)
 	if !ok {
-		return nil, errors.New("invalid token claims type")
+		return nil, fmt.Errorf("%w: unexpected claims type", ErrAccessTokenInvalid)
+	}
+
+	// iat anchors the user-wide revocation watermark comparison, and sid the
+	// per-session denylist; a token missing either cannot be revoked.
+	if claims.IssuedAt == nil {
+		return nil, fmt.Errorf("%w: missing issued-at claim", ErrAccessTokenInvalid)
+	}
+	if claims.SessionID == uuid.Nil {
+		return nil, fmt.Errorf("%w: missing session id claim", ErrAccessTokenInvalid)
 	}
 
 	uid, err := uuid.Parse(claims.Subject)
 	if err != nil {
-		return nil, fmt.Errorf("get access token ctx: invalid type of user id: %w", err)
+		return nil, fmt.Errorf("%w: invalid subject: %w", ErrAccessTokenInvalid, err)
 	}
 	claims.UserID = uid
 
 	return claims, nil
 }
-
-// type accessTokenCtxKey struct{}
-//
-// var atCtx accessTokenCtxKey
-//
-// // SetAccessTokenCtx sets the access token jwt claims to the context.
-// func SetAccessTokenCtx(ctx context.Context, claims *AccessTokenClaims) context.Context {
-// 	return context.WithValue(ctx, atCtx, claims)
-// }
-//
-// // GetAccessTokenCtx retrieves the access token jwt claims from the context.
-// func GetAccessTokenCtx(ctx context.Context) (*AccessTokenClaims, error) {
-// 	claims, ok := ctx.Value(atCtx).(*AccessTokenClaims)
-// 	if !ok {
-// 		return nil, ErrAccessTokenClaimsNotFound
-// 	}
-// 	return claims, nil
-// }
