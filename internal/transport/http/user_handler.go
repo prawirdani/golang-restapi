@@ -21,10 +21,10 @@ func NewUserHandler(userService *user.Service) *UserHandler {
 func (h *UserHandler) Routes(router fiber.Router, auth *authenticatorMiddleware) {
 	router.Use(auth.Authenticate).Route("/users", func(router fiber.Router) {
 		router.Get("/", h.listuser)
-		router.Put("/", h.updateUser)
 		router.Delete("/profile-picture", h.deleteProfilePicture)
-		router.Delete("/:id", h.deleteUser)
 		router.Put("/profile-picture", h.changeProfilePicture)
+		router.Delete("/:id", h.deleteUser)
+		router.Put("/:id", h.updateUser)
 	})
 }
 
@@ -48,13 +48,16 @@ func (h *UserHandler) listuser(c fiber.Ctx) error {
 	})
 }
 
+// updateUser updates the user identified by the path param. The service
+// authorizes the caller: they may update only themselves unless their role
+// holds user.update, in which case they may update anyone.
 func (h *UserHandler) updateUser(c fiber.Ctx) error {
 	ctx := c.Context()
+	param := c.Params("id")
 
-	authz, err := rbac.GetContext(ctx)
+	userID, err := uuid.Parse(param)
 	if err != nil {
-		log.ErrorCtx(ctx, "Failed to get auth context", err)
-		return err
+		return ErrInvalidParam("id", param)
 	}
 
 	var reqBody user.UpdateUserInput
@@ -62,7 +65,8 @@ func (h *UserHandler) updateUser(c fiber.Ctx) error {
 		return err
 	}
 
-	if err := h.userService.UpdateUser(ctx, *authz.Actor.UserID, reqBody); err != nil {
+	if err := h.userService.UpdateUser(ctx, userID, reqBody); err != nil {
+		log.ErrorCtx(ctx, "Failed to update user", err)
 		return err
 	}
 

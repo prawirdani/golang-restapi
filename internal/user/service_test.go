@@ -365,6 +365,80 @@ func TestService_DeleteProfilePicture(t *testing.T) {
 	})
 }
 
+// userCtx returns a context carrying a plain (non-privileged) user actor.
+func userCtx(id uuid.UUID) context.Context {
+	return rbac.WithContext(context.Background(), rbac.Context{
+		Actor: rbac.Actor{UserID: &id, Role: rbac.RoleUser},
+	})
+}
+
+func TestService_UpdateUser(t *testing.T) {
+	t.Run("Privileged actor updates another user", func(t *testing.T) {
+		ctx := adminCtx()
+		f := setupTestFixture(t)
+
+		existingUser := &user.User{
+			ID:       uuid.New(),
+			Name:     "John Doe",
+			Email:    "john@example.com",
+			Password: "hashedpassword",
+			Role:     rbac.RoleUser,
+		}
+		input := user.UpdateUserInput{Name: "Jane Doe", Phone: "987654321", Gender: "f"}
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.repo.EXPECT().GetByID(ctx, existingUser.ID).Return(existingUser, nil)
+				f.repo.EXPECT().Update(ctx, mock.MatchedBy(func(u *user.User) bool {
+					return u.ID == existingUser.ID && u.Name == "Jane Doe" &&
+						u.Phone.Get() == "987654321" && u.Gender.Get() == user.Gender("F")
+				})).Return(nil)
+				f.audit.EXPECT().Record(ctx, mock.AnythingOfType("audit.Entry")).Return(nil)
+				return fn(ctx)
+			})
+
+		err := f.service.UpdateUser(ctx, existingUser.ID, input)
+		assert.NoError(t, err)
+	})
+
+	t.Run("User updates self", func(t *testing.T) {
+		selfID := uuid.New()
+		ctx := userCtx(selfID)
+		f := setupTestFixture(t)
+
+		existingUser := &user.User{
+			ID:       selfID,
+			Name:     "John Doe",
+			Email:    "john@example.com",
+			Password: "hashedpassword",
+			Role:     rbac.RoleUser,
+		}
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.repo.EXPECT().GetByID(ctx, selfID).Return(existingUser, nil)
+				f.repo.EXPECT().Update(ctx, mock.AnythingOfType("*user.User")).Return(nil)
+				f.audit.EXPECT().Record(ctx, mock.AnythingOfType("audit.Entry")).Return(nil)
+				return fn(ctx)
+			})
+
+		err := f.service.UpdateUser(ctx, selfID, user.UpdateUserInput{Name: "Johnny"})
+		assert.NoError(t, err)
+	})
+
+	t.Run("User cannot update another user", func(t *testing.T) {
+		ctx := userCtx(uuid.New())
+		f := setupTestFixture(t)
+
+		// No transactor/repo expectations: authorization must reject before any
+		// write path runs, so an unexpected call would fail the test.
+		err := f.service.UpdateUser(ctx, uuid.New(), user.UpdateUserInput{Name: "Hacked"})
+		assert.ErrorIs(t, err, rbac.ErrUnauthorizedPermission)
+	})
+}
+
 type testFixtures struct {
 	transactor *sharedMocks.Transactor
 	file       *sharedMocks.File
