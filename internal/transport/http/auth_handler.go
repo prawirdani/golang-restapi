@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/config"
 	"github.com/prawirdani/golang-restapi/pkg/log"
 
@@ -57,6 +58,8 @@ func (h *AuthHandler) Routes(router fiber.Router, auth *authenticatorMiddleware)
 			r.Get("/me", h.getCurrentUser)
 			r.Put("/password/change", h.changePassword)
 			r.Get("/permissions", h.listPermission)
+			r.Post("/users/:id/revoke-sessions", h.revokeUserSessions)
+			r.Post("/sessions/:id/revoke", h.revokeSession)
 		})
 	})
 }
@@ -307,6 +310,49 @@ func (h *AuthHandler) listPermission(c fiber.Ctx) error {
 
 	return c.JSON(Body{
 		Data: perms,
+	})
+}
+
+// revokeUserSessions revokes every persisted session and stateless access token
+// for the user identified by the path param. It is the admin escape hatch for a
+// compromised account; the service enforces auth.revoke-user-sessions.
+func (h *AuthHandler) revokeUserSessions(c fiber.Ctx) error {
+	ctx := c.Context()
+	param := c.Params("id")
+
+	userID, err := uuid.Parse(param)
+	if err != nil {
+		return ErrInvalidParam("id", param)
+	}
+
+	if err := h.authService.RevokeUserSessions(ctx, userID); err != nil {
+		log.ErrorCtx(ctx, "Failed to revoke user sessions", err)
+		return err
+	}
+
+	return c.JSON(Body{
+		Message: "user sessions revoked.",
+	})
+}
+
+// revokeSession revokes a single session by id. The caller may revoke their own
+// session; a role holding auth.revoke-user-session may revoke any session.
+func (h *AuthHandler) revokeSession(c fiber.Ctx) error {
+	ctx := c.Context()
+	param := c.Params("id")
+
+	sessionID, err := uuid.Parse(param)
+	if err != nil {
+		return ErrInvalidParam("id", param)
+	}
+
+	if err := h.authService.RevokeSession(ctx, sessionID); err != nil {
+		log.ErrorCtx(ctx, "Failed to revoke session", err)
+		return err
+	}
+
+	return c.JSON(Body{
+		Message: "session revoked.",
 	})
 }
 
