@@ -15,7 +15,6 @@ import (
 	"github.com/prawirdani/golang-restapi/internal/ports/revocation"
 	"github.com/prawirdani/golang-restapi/internal/rbac"
 	"github.com/prawirdani/golang-restapi/pkg/log"
-	"github.com/prawirdani/golang-restapi/pkg/metrics"
 )
 
 // revocationCheckTimeout bounds the access-token revocation lookup so a slow or
@@ -26,20 +25,17 @@ const revocationCheckTimeout = 300 * time.Millisecond
 type authenticatorMiddleware struct {
 	jwtSecret  string
 	checker    revocation.Checker
-	metrics    *metrics.Metrics
 	failClosed bool
 }
 
 func NewAuthenticatorMiddleware(
 	jwtSecret string,
 	checker revocation.Checker,
-	m *metrics.Metrics,
 	failClosed bool,
 ) *authenticatorMiddleware {
 	return &authenticatorMiddleware{
 		jwtSecret:  jwtSecret,
 		checker:    checker,
-		metrics:    m,
 		failClosed: failClosed,
 	}
 }
@@ -76,10 +72,7 @@ func (am *authenticatorMiddleware) Authenticate(c fiber.Ctx) error {
 	cancel()
 
 	if err != nil {
-		log.ErrorCtx(c.Context(), "Failed to check access token revocation", err)
-		if am.metrics != nil {
-			am.metrics.RevocationCheckErrors.Inc()
-		}
+		log.WarnCtx(c.Context(), "Failed to check access token revocation", err)
 		if am.failClosed {
 			return auth.ErrSessionInvalid
 		}

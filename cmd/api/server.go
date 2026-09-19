@@ -83,7 +83,7 @@ func NewServer(container *Container, onPostShutdown func(error) error) (*Server,
 	app.Get("/api/healthz", svr.health)
 
 	// Setup API routes
-	svr.setupHandlers(m)
+	svr.setupHandlers()
 
 	// Not Found Handler
 	app.Use(func(c fiber.Ctx) error {
@@ -145,7 +145,7 @@ func (s *Server) health(c fiber.Ctx) error {
 }
 
 // setupHandlers initializes and registers all API handlers.
-func (s *Server) setupHandlers(m *metrics.Metrics) {
+func (s *Server) setupHandlers() {
 	svcs := s.container.Services
 
 	// Initialize Handlers
@@ -156,7 +156,6 @@ func (s *Server) setupHandlers(m *metrics.Metrics) {
 	authMiddleware := http.NewAuthenticatorMiddleware(
 		s.container.Config.Auth.JwtSecret,
 		s.container.RevocationStore,
-		m,
 		s.container.Config.Auth.RevocationFailClosed,
 	)
 

@@ -11,8 +11,6 @@ type Metrics struct {
 	Info        *prometheus.GaugeVec
 	ReqDuration *prometheus.HistogramVec
 	ReqCounter  *prometheus.CounterVec
-	// RevocationCheckErrors counts failures of access-token revocation checks.
-	RevocationCheckErrors prometheus.Counter
 }
 
 func Init(version, env string) *Metrics {
@@ -39,17 +37,10 @@ func Init(version, env string) *Metrics {
 				Help:      "Total number of requests",
 			}, []string{"path", "method", "status_code"},
 		),
-		RevocationCheckErrors: prometheus.NewCounter(
-			prometheus.CounterOpts{
-				Namespace: "app",
-				Name:      "revocation_check_errors_total",
-				Help:      "Total number of access-token revocation check errors",
-			},
-		),
 	}
 	m.Info.WithLabelValues(version, env).Set(1)
 
-	prometheus.MustRegister(m.ReqDuration, m.Info, m.ReqCounter, m.RevocationCheckErrors)
+	prometheus.MustRegister(m.ReqDuration, m.Info, m.ReqCounter)
 	return m
 }
 

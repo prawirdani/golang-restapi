@@ -73,7 +73,7 @@ func newAuthApp(checker *sharedMocks.Checker, failClosed bool) *fiber.App {
 			return c.Status(e.Status()).JSON(map[string]any{"error": e})
 		},
 	})
-	am := NewAuthenticatorMiddleware(authTestSecret, checker, nil, failClosed)
+	am := NewAuthenticatorMiddleware(authTestSecret, checker, failClosed)
 	app.Use(am.Authenticate)
 	app.Get("/", func(c fiber.Ctx) error { return c.SendStatus(http.StatusOK) })
 	return app
