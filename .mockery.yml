@@ -40,6 +40,18 @@ packages:
         config:
           filename: throttler.go
 
+  github.com/prawirdani/golang-restapi/internal/ports/revocation:
+    interfaces:
+      Checker:
+        config:
+          filename: revocation_checker.go
+      Revoker:
+        config:
+          filename: revocation_revoker.go
+      Store:
+        config:
+          filename: revocation_store.go
+
   github.com/prawirdani/golang-restapi/internal/auth:
     interfaces:
       Repository:
@@ -65,3 +77,8 @@ packages:
           dir: "./internal/user/mocks"
           structname: "{{.InterfaceName}}"
           filename: repository.go
+      SessionRevoker:
+        config:
+          dir: "./internal/user/mocks"
+          structname: "{{.InterfaceName}}"
+          filename: session_revoker.go

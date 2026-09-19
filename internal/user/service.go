@@ -12,6 +12,7 @@ import (
 	"github.com/prawirdani/golang-restapi/internal/apperr"
 	"github.com/prawirdani/golang-restapi/internal/audit"
 	"github.com/prawirdani/golang-restapi/internal/ports/repository"
+	"github.com/prawirdani/golang-restapi/internal/ports/revocation"
 	"github.com/prawirdani/golang-restapi/internal/ports/storage"
 	"github.com/prawirdani/golang-restapi/internal/rbac"
 	"github.com/prawirdani/golang-restapi/pkg/log"
@@ -43,12 +44,22 @@ var permTables = rbac.PermissionTable{
 	rbac.RoleUser:   {}, // Self read and update through authorize.SelfOr
 }
 
+// SessionRevoker revokes a user's persisted sessions. Implemented by the auth
+// repository; declared here so the user service can revoke sessions inside its
+// own transaction without depending on the auth package.
+type SessionRevoker interface {
+	// RevokeUserSessions revokes all active sessions belonging to userID.
+	RevokeUserSessions(ctx context.Context, userID uuid.UUID) error
+}
+
 type Service struct {
-	transactor   repository.Transactor
-	userRepo     Repository
-	imageStorage storage.Storage
-	authorizer   rbac.Authorizer
-	audit        audit.Recorder
+	transactor     repository.Transactor
+	userRepo       Repository
+	imageStorage   storage.Storage
+	authorizer     rbac.Authorizer
+	audit          audit.Recorder
+	sessionRevoker SessionRevoker
+	revoker        revocation.Revoker
 }
 
 func NewService(
@@ -57,15 +68,19 @@ func NewService(
 	imageStorage storage.Storage,
 	authorizer rbac.Authorizer,
 	auditRecorder audit.Recorder,
+	sessionRevoker SessionRevoker,
+	revoker revocation.Revoker,
 ) *Service {
 	authorizer.RegisterPermissions(permTables)
 
 	return &Service{
-		transactor:   transactor,
-		userRepo:     userRepo,
-		imageStorage: imageStorage,
-		authorizer:   authorizer,
-		audit:        auditRecorder,
+		transactor:     transactor,
+		userRepo:       userRepo,
+		imageStorage:   imageStorage,
+		authorizer:     authorizer,
+		audit:          auditRecorder,
+		sessionRevoker: sessionRevoker,
+		revoker:        revoker,
 	}
 }
 
@@ -141,7 +156,9 @@ func (s *Service) DeleteUser(ctx context.Context, userID uuid.UUID) error {
 		return err
 	}
 
-	return s.transactor.Transact(ctx, func(ctx context.Context) error {
+	// The not-found path is idempotent: it skips session rows (nothing to
+	// revoke) but still writes the access-token watermark below.
+	err := s.transactor.Transact(ctx, func(ctx context.Context) error {
 		usr, err := s.userRepo.GetByID(ctx, userID)
 		if err != nil {
 			// Idempotent
@@ -155,6 +172,12 @@ func (s *Service) DeleteUser(ctx context.Context, userID uuid.UUID) error {
 			return err
 		}
 
+		// Repository joins this transaction via db.GetConn; persisting the
+		// revocation makes a committed delete never leave sessions alive.
+		if err := s.sessionRevoker.RevokeUserSessions(ctx, userID); err != nil {
+			return err
+		}
+
 		return s.audit.Record(ctx, audit.Entry{
 			Action:   ActionDelete,
 			Entity:   "user",
@@ -163,6 +186,25 @@ func (s *Service) DeleteUser(ctx context.Context, userID uuid.UUID) error {
 			Next:     nil,
 		})
 	})
+	if err != nil {
+		return err
+	}
+
+	// Watermark stateless access tokens after the DB commit. This also runs on
+	// the idempotent not-found path: a retry after a failed post-commit write
+	// must converge and revoke the pre-delete access tokens. Unlike the session
+	// rows this is the only record that access-token revocation happened, so its
+	// failure is surfaced to the caller (the deletion itself stands).
+	logger := log.GetFromContext(ctx).With("user_id", userID.String())
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+
+	if err := s.revoker.RevokeAllForUser(cleanupCtx, userID); err != nil {
+		logger.Error("failed to revoke user access tokens", err)
+		return err
+	}
+
+	return nil
 }
 
 func (s *Service) ChangeProfilePicture(

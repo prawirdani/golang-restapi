@@ -7,6 +7,7 @@ import (
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/postgres"
 	"github.com/prawirdani/golang-restapi/internal/infrastructure/r2"
 	redisInfra "github.com/prawirdani/golang-restapi/internal/infrastructure/redis"
+	"github.com/prawirdani/golang-restapi/internal/ports/revocation"
 	"github.com/prawirdani/golang-restapi/internal/rbac"
 	"github.com/prawirdani/golang-restapi/internal/user"
 	"github.com/redis/go-redis/v9"
@@ -26,6 +27,9 @@ type Container struct {
 	// Infrastructure handles kept for readiness checks and shutdown.
 	pg  *postgres.DB
 	rdb *redis.Client
+
+	// RevocationStore backs the access-token revocation middleware.
+	RevocationStore revocation.Store
 }
 
 // NewContainer initializes all dependencies
@@ -46,6 +50,7 @@ func NewContainer(
 	}
 
 	redisThrottler := redisInfra.NewThrottler(rdb)
+	revocationStore := redisInfra.NewRevocationStore(rdb, cfg.Auth.JwtTTL)
 
 	// Repos init
 	userRepo := postgres.NewUserRepository(pg)
@@ -55,7 +60,7 @@ func NewContainer(
 	authorizer := rbac.NewAuthorizer()
 
 	// Setup Services
-	userSvc := user.NewService(pg, userRepo, r2Storage, authorizer, auditRepo)
+	userSvc := user.NewService(pg, userRepo, r2Storage, authorizer, auditRepo, authRepo, revocationStore)
 
 	authEventProducer := redisInfra.NewAuthEventProducer(rdb)
 	authSvc := auth.NewService(
@@ -67,13 +72,15 @@ func NewContainer(
 		authEventProducer,
 		redisThrottler,
 		auditRepo,
+		revocationStore,
 	)
 	auditSvc := audit.NewAuditService(authorizer, auditRepo)
 
 	c := &Container{
-		Config: cfg,
-		pg:     pg,
-		rdb:    rdb,
+		Config:          cfg,
+		pg:              pg,
+		rdb:             rdb,
+		RevocationStore: revocationStore,
 		Services: &Services{
 			UserService:  userSvc,
 			AuthService:  authSvc,

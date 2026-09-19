@@ -439,13 +439,103 @@ func TestService_UpdateUser(t *testing.T) {
 	})
 }
 
+func TestService_DeleteUser(t *testing.T) {
+	t.Run("Revokes sessions in tx and access tokens after commit", func(t *testing.T) {
+		ctx := adminCtx()
+		f := setupTestFixture(t)
+
+		existingUser := &user.User{ID: uuid.New(), Name: "John Doe", Email: "john@example.com"}
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.repo.EXPECT().GetByID(ctx, existingUser.ID).Return(existingUser, nil)
+				f.repo.EXPECT().Delete(ctx, existingUser).Return(nil)
+				f.sessionRevoker.EXPECT().RevokeUserSessions(ctx, existingUser.ID).Return(nil)
+				f.audit.EXPECT().Record(ctx, mock.AnythingOfType("audit.Entry")).Return(nil)
+				return fn(ctx)
+			})
+
+		// The watermark runs on a derived context, so match any context.
+		f.revoker.EXPECT().RevokeAllForUser(mock.Anything, existingUser.ID).Return(nil)
+
+		err := f.service.DeleteUser(ctx, existingUser.ID)
+		assert.NoError(t, err)
+	})
+
+	t.Run("Delete failure revokes nothing", func(t *testing.T) {
+		ctx := adminCtx()
+		f := setupTestFixture(t)
+
+		existingUser := &user.User{ID: uuid.New(), Name: "John Doe", Email: "john@example.com"}
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.repo.EXPECT().GetByID(ctx, existingUser.ID).Return(existingUser, nil)
+				f.repo.EXPECT().Delete(ctx, existingUser).Return(fmt.Errorf("db error"))
+				return fn(ctx)
+			})
+
+		// No sessionRevoker/revoker expectations: an unexpected call would fail
+		// the test because the mocks are constructed with t.
+		err := f.service.DeleteUser(ctx, existingUser.ID)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "db error")
+	})
+
+	t.Run("Not found still writes the access-token watermark", func(t *testing.T) {
+		ctx := adminCtx()
+		f := setupTestFixture(t)
+		userID := uuid.New()
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.repo.EXPECT().GetByID(ctx, userID).Return(nil, apperr.ErrNotFound)
+				return fn(ctx)
+			})
+
+		// Session rows are untouched (none to revoke), but the watermark must
+		// still land so a retry after a failed post-commit write converges.
+		f.revoker.EXPECT().RevokeAllForUser(mock.Anything, userID).Return(nil)
+
+		err := f.service.DeleteUser(ctx, userID)
+		assert.NoError(t, err)
+	})
+
+	t.Run("Access-token watermark failure is returned", func(t *testing.T) {
+		ctx := adminCtx()
+		f := setupTestFixture(t)
+
+		existingUser := &user.User{ID: uuid.New(), Name: "John Doe", Email: "john@example.com"}
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.repo.EXPECT().GetByID(ctx, existingUser.ID).Return(existingUser, nil)
+				f.repo.EXPECT().Delete(ctx, existingUser).Return(nil)
+				f.sessionRevoker.EXPECT().RevokeUserSessions(ctx, existingUser.ID).Return(nil)
+				f.audit.EXPECT().Record(ctx, mock.AnythingOfType("audit.Entry")).Return(nil)
+				return fn(ctx)
+			})
+
+		f.revoker.EXPECT().RevokeAllForUser(mock.Anything, existingUser.ID).Return(assert.AnError)
+
+		err := f.service.DeleteUser(ctx, existingUser.ID)
+		assert.ErrorIs(t, err, assert.AnError)
+	})
+}
+
 type testFixtures struct {
-	transactor *sharedMocks.Transactor
-	file       *sharedMocks.File
-	storage    *sharedMocks.Storage
-	repo       *mocks.Repository
-	audit      *sharedMocks.Recorder
-	service    *user.Service
+	transactor     *sharedMocks.Transactor
+	file           *sharedMocks.File
+	storage        *sharedMocks.Storage
+	repo           *mocks.Repository
+	audit          *sharedMocks.Recorder
+	sessionRevoker *mocks.SessionRevoker
+	revoker        *sharedMocks.Revoker
+	service        *user.Service
 }
 
 func setupTestFixture(t *testing.T) *testFixtures {
@@ -454,6 +544,8 @@ func setupTestFixture(t *testing.T) *testFixtures {
 	storage := sharedMocks.NewStorage(t)
 	file := sharedMocks.NewFile(t)
 	auditRec := sharedMocks.NewRecorder(t)
+	sessionRevoker := mocks.NewSessionRevoker(t)
+	revoker := sharedMocks.NewRevoker(t)
 
 	t.Cleanup(func() {
 		tr.AssertExpectations(t)
@@ -461,16 +553,20 @@ func setupTestFixture(t *testing.T) *testFixtures {
 		storage.AssertExpectations(t)
 		file.AssertExpectations(t)
 		auditRec.AssertExpectations(t)
+		sessionRevoker.AssertExpectations(t)
+		revoker.AssertExpectations(t)
 	})
 
-	svc := user.NewService(tr, repo, storage, rbac.NewAuthorizer(), auditRec)
+	svc := user.NewService(tr, repo, storage, rbac.NewAuthorizer(), auditRec, sessionRevoker, revoker)
 
 	return &testFixtures{
-		transactor: tr,
-		repo:       repo,
-		storage:    storage,
-		file:       file,
-		audit:      auditRec,
-		service:    svc,
+		transactor:     tr,
+		repo:           repo,
+		storage:        storage,
+		file:           file,
+		audit:          auditRec,
+		sessionRevoker: sessionRevoker,
+		revoker:        revoker,
+		service:        svc,
 	}
 }

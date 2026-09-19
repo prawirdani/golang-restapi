@@ -65,9 +65,9 @@ func gatherPermissions() []string {
 	// so nil dependencies are safe here. Keep this in sync with the services
 	// wired in cmd/api/container.go — a new domain that registers permissions
 	// must be replayed here too.
-	user.NewService(nil, nil, nil, authorizer, nil)
+	user.NewService(nil, nil, nil, authorizer, nil, nil, nil)
 	audit.NewAuditService(authorizer, nil)
-	auth.NewService(&config.Config{}, nil, nil, nil, authorizer, nil, nil, nil)
+	auth.NewService(&config.Config{}, nil, nil, nil, authorizer, nil, nil, nil, nil)
 
 	seen := make(map[string]struct{})
 	for _, perms := range authorizer.Permissions() {

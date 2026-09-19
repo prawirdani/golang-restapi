@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -13,6 +14,10 @@ type Auth struct {
 	RegistrationTokenTTL             time.Duration
 	ResetPasswordFormEndpoint        string
 	CompleteRegistrationFormEndpoint string
+	// RevocationFailClosed makes access-token revocation checks deny access
+	// when the backing store errors, instead of failing open
+	// (AUTH_REVOCATION_FAIL_CLOSED).
+	RevocationFailClosed bool
 }
 
 func (t *Auth) Parse() error {
@@ -39,6 +44,16 @@ func (t *Auth) Parse() error {
 		if d, err := time.ParseDuration(val); err == nil {
 			t.RegistrationTokenTTL = d
 		}
+	}
+	if val := os.Getenv("AUTH_REVOCATION_FAIL_CLOSED"); val != "" {
+		if b, err := strconv.ParseBool(val); err == nil {
+			t.RevocationFailClosed = b
+		}
+	}
+	// Revocation checks fail open by default, so a short access-token TTL
+	// bounds how long a revoked token can still be accepted. Env var overrides.
+	if t.JwtTTL == 0 {
+		t.JwtTTL = 15 * time.Minute
 	}
 	// Default to a short TTL (5m) even when the env var is unset. The reset
 	// link travels in a URL (?token=) which can end up in logs/proxies/history,

@@ -10,12 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/prawirdani/golang-restapi/config"
 	"github.com/prawirdani/golang-restapi/internal/apperr"
 	"github.com/prawirdani/golang-restapi/internal/audit"
 	"github.com/prawirdani/golang-restapi/internal/ports/repository"
+	"github.com/prawirdani/golang-restapi/internal/ports/revocation"
 	"github.com/prawirdani/golang-restapi/internal/ports/throttle"
 	"github.com/prawirdani/golang-restapi/internal/rbac"
 	"github.com/prawirdani/golang-restapi/internal/user"
@@ -23,14 +25,26 @@ import (
 )
 
 const (
-	PermChangePassword rbac.Permission = "auth.change-password"
-	PermRegisterUser   rbac.Permission = "auth.register-user" // new user registration by authorized roles (gated by internal mode=true)
+	PermChangePassword     rbac.Permission = "auth.change-password"
+	PermRegisterUser       rbac.Permission = "auth.register-user" // new user registration by authorized roles (gated by internal mode=true)
+	PermRevokeUserSessions rbac.Permission = "auth.revoke-user-sessions"
+	PermRevokeUserSession  rbac.Permission = "auth.revoke-user-session" // singular: revoke one session, any owner
 )
 
 var permTables = rbac.PermissionTable{
-	rbac.RoleSystem: {PermChangePassword: {}, PermRegisterUser: {}},
-	rbac.RoleAdmin:  {PermChangePassword: {}, PermRegisterUser: {}},
-	rbac.RoleUser:   {},
+	rbac.RoleSystem: {
+		PermChangePassword:     {},
+		PermRegisterUser:       {},
+		PermRevokeUserSessions: {},
+		PermRevokeUserSession:  {},
+	},
+	rbac.RoleAdmin: {
+		PermChangePassword:     {},
+		PermRegisterUser:       {},
+		PermRevokeUserSessions: {},
+		PermRevokeUserSession:  {},
+	},
+	rbac.RoleUser: {},
 }
 
 // Audit Actions for the auth entity. These record state changes (sessions,
@@ -46,6 +60,8 @@ const (
 	ActionChangePassword       audit.Action = "auth.change-password"
 	ActionResetPassword        audit.Action = "auth.reset-password"
 	ActionRecoverPassword      audit.Action = "auth.password-recovery-request"
+	ActionRevokeUserSessions   audit.Action = "auth.revoke-user-sessions"
+	ActionRevokeSession        audit.Action = "auth.revoke-session"
 )
 
 type Service struct {
@@ -57,6 +73,7 @@ type Service struct {
 	eventProducer EventProducer
 	throttler     throttle.Throttler
 	audit         audit.Recorder
+	revoker       revocation.Revoker
 }
 
 func NewService(
@@ -68,6 +85,7 @@ func NewService(
 	eventProducer EventProducer,
 	throttler throttle.Throttler,
 	auditRecorder audit.Recorder,
+	revoker revocation.Revoker,
 ) *Service {
 	authorizer.RegisterPermissions(permTables)
 
@@ -80,6 +98,7 @@ func NewService(
 		throttler:     throttler,
 		authorizer:    authorizer,
 		audit:         auditRecorder,
+		revoker:       revoker,
 	}
 }
 
@@ -327,7 +346,7 @@ func (s *Service) RefreshAccessToken(
 }
 
 func (s *Service) Logout(ctx context.Context, sessID uuid.UUID) error {
-	return s.transactor.Transact(ctx, func(ctx context.Context) error {
+	if err := s.transactor.Transact(ctx, func(ctx context.Context) error {
 		session, err := s.authRepo.GetSessionByID(ctx, sessID)
 		if err != nil {
 			return err
@@ -349,7 +368,20 @@ func (s *Service) Logout(ctx context.Context, sessID uuid.UUID) error {
 			EntityID: session.UserID.String(),
 			Meta:     map[string]any{"session_id": sessID.String()},
 		})
-	})
+	}); err != nil {
+		return err
+	}
+
+	// Best-effort: the session row is already revoked so refresh is dead even
+	// if the access-token watermark write fails.
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+
+	if err := s.revoker.RevokeSession(cleanupCtx, sessID); err != nil {
+		log.WarnCtx(ctx, "failed to revoke session access tokens", err)
+	}
+
+	return nil
 }
 
 // RecoverPassword initiates the password recovery process by sending a reset link or token to the user's email.
@@ -418,7 +450,9 @@ func (s *Service) GetPasswordRecoveryToken(
 // ResetPassword resets a user's password using a valid password recovery token from email.
 func (s *Service) ResetPassword(ctx context.Context, inp ResetPasswordInput) error {
 	sum := HashStr(inp.Token)
-	return s.transactor.Transact(ctx, func(ctx context.Context) error {
+
+	var revokedUserID uuid.UUID
+	if err := s.transactor.Transact(ctx, func(ctx context.Context) error {
 		token, err := s.authRepo.GetPasswordRecoveryToken(ctx, sum)
 		if err != nil {
 			if errors.Is(err, apperr.ErrNotFound) {
@@ -442,6 +476,7 @@ func (s *Service) ResetPassword(ctx context.Context, inp ResetPasswordInput) err
 			return err
 		}
 		user.Password = string(newHashedPassword)
+		revokedUserID = user.ID
 
 		token.Use()
 		if err := s.authRepo.UpdatePasswordRecoveryToken(ctx, token); err != nil {
@@ -461,7 +496,20 @@ func (s *Service) ResetPassword(ctx context.Context, inp ResetPasswordInput) err
 			Entity:   "user",
 			EntityID: user.ID.String(),
 		})
-	})
+	}); err != nil {
+		return err
+	}
+
+	// Session rows are already revoked, so refresh is dead. Also watermark
+	// stateless access tokens; a write failure must not turn a completed
+	// password change into a 500.
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.revoker.RevokeAllForUser(cleanupCtx, revokedUserID); err != nil {
+		log.ErrorCtx(ctx, "Failed to revoke user access tokens after password reset", err)
+	}
+
+	return nil
 }
 
 // ChangePassword updates the authenticated user's password after verifying the current password.
@@ -492,7 +540,7 @@ func (s *Service) ChangePassword(
 
 	usr.Password = string(newHashedPassword)
 
-	return s.transactor.Transact(ctx, func(ctx context.Context) error {
+	if err := s.transactor.Transact(ctx, func(ctx context.Context) error {
 		if err := s.userRepo.Update(ctx, usr); err != nil {
 			return err
 		}
@@ -506,7 +554,99 @@ func (s *Service) ChangePassword(
 			Entity:   "user",
 			EntityID: userID.String(),
 		})
-	})
+	}); err != nil {
+		return err
+	}
+
+	// Session rows are already revoked, so refresh is dead. Also watermark
+	// stateless access tokens; a write failure must not turn a completed
+	// password change into a 500.
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.revoker.RevokeAllForUser(cleanupCtx, userID); err != nil {
+		log.ErrorCtx(ctx, "Failed to revoke user access tokens after password change", err)
+	}
+
+	return nil
+}
+
+// RevokeUserSessions revokes every persisted session and stateless access token
+// belonging to userID. It is the admin escape hatch for a compromised account,
+// so unlike the password flows it returns an error when the access-token
+// watermark cannot be written.
+func (s *Service) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
+	if err := s.authorizer.Require(ctx, PermRevokeUserSessions); err != nil {
+		return err
+	}
+
+	if err := s.transactor.Transact(ctx, func(ctx context.Context) error {
+		if err := s.authRepo.RevokeUserSessions(ctx, userID); err != nil {
+			return err
+		}
+
+		return s.audit.Record(ctx, audit.Entry{
+			Action:   ActionRevokeUserSessions,
+			Entity:   "user",
+			EntityID: userID.String(),
+		})
+	}); err != nil {
+		return err
+	}
+
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.revoker.RevokeAllForUser(cleanupCtx, userID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// RevokeSession revokes a single session by id. The caller may revoke their own
+// session; a role holding auth.revoke-user-session may revoke any session.
+func (s *Service) RevokeSession(ctx context.Context, sessionID uuid.UUID) error {
+	if err := s.transactor.Transact(ctx, func(ctx context.Context) error {
+		sess, err := s.authRepo.GetSessionByID(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+
+		// Authorize against the SESSION OWNER's id, never one supplied by the
+		// request, so a plain user cannot revoke someone else's session.
+		if err := s.authorizer.RequireSelfOr(ctx, sess.UserID, PermRevokeUserSession); err != nil {
+			return err
+		}
+
+		if sess.IsExpired() || sess.RevokedAt.NotNull() {
+			return nil
+		}
+
+		sess.Revoke()
+
+		if err := s.authRepo.UpdateSession(ctx, sess); err != nil {
+			return err
+		}
+
+		return s.audit.Record(ctx, audit.Entry{
+			Action:   ActionRevokeSession,
+			Entity:   "session",
+			EntityID: sessionID.String(),
+		})
+	}); err != nil {
+		return err
+	}
+
+	// The session row is already revoked, so refresh is dead; denylist the
+	// stateless access token too, and surface a failure since this endpoint
+	// exists to guarantee revocation.
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.revoker.RevokeSession(cleanupCtx, sessionID); err != nil {
+		log.ErrorCtx(ctx, "Failed to revoke session access tokens", err)
+		return err
+	}
+
+	return nil
 }
 
 func (s *Service) ListPermission(ctx context.Context) ([]rbac.Permission, error) {

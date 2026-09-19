@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"net"
 	"strings"
 	"time"
@@ -11,17 +12,35 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/requestid"
 	"github.com/prawirdani/golang-restapi/internal/audit"
 	"github.com/prawirdani/golang-restapi/internal/auth"
+	"github.com/prawirdani/golang-restapi/internal/ports/revocation"
 	"github.com/prawirdani/golang-restapi/internal/rbac"
 	"github.com/prawirdani/golang-restapi/pkg/log"
+	"github.com/prawirdani/golang-restapi/pkg/metrics"
 )
 
+// revocationCheckTimeout bounds the access-token revocation lookup so a slow or
+// stalled store cannot hold the request open. A timeout is treated like any
+// other check error (fail-open by default, fail-closed when configured).
+const revocationCheckTimeout = 300 * time.Millisecond
+
 type authenticatorMiddleware struct {
-	jwtSecret string
+	jwtSecret  string
+	checker    revocation.Checker
+	metrics    *metrics.Metrics
+	failClosed bool
 }
 
-func NewAuthenticatorMiddleware(jwtSecret string) *authenticatorMiddleware {
+func NewAuthenticatorMiddleware(
+	jwtSecret string,
+	checker revocation.Checker,
+	m *metrics.Metrics,
+	failClosed bool,
+) *authenticatorMiddleware {
 	return &authenticatorMiddleware{
-		jwtSecret: jwtSecret,
+		jwtSecret:  jwtSecret,
+		checker:    checker,
+		metrics:    m,
+		failClosed: failClosed,
 	}
 }
 
@@ -41,10 +60,31 @@ func (am *authenticatorMiddleware) Authenticate(c fiber.Ctx) error {
 		return ErrReqUnauthorized
 	}
 
-	// Validate token
+	// Validate token. The revocation check below must never run before this
+	// succeeds: unverified claims are attacker-controlled.
 	claims, err := auth.VerifyAccessToken(am.jwtSecret, tokenStr)
 	if err != nil {
 		return err
+	}
+
+	// Revocation check. One store call (a single MGET); the result deliberately
+	// collapses revoked and invalid into the same 401 so the response does not
+	// reveal which. On a store error, fail open by default (a short access-token
+	// TTL bounds exposure) unless failClosed is configured.
+	revCtx, cancel := context.WithTimeout(c.Context(), revocationCheckTimeout)
+	revoked, err := am.checker.IsRevoked(revCtx, claims.UserID, claims.SessionID, claims.IssuedAt.Time)
+	cancel()
+
+	if err != nil {
+		log.ErrorCtx(c.Context(), "Failed to check access token revocation", err)
+		if am.metrics != nil {
+			am.metrics.RevocationCheckErrors.Inc()
+		}
+		if am.failClosed {
+			return auth.ErrSessionInvalid
+		}
+	} else if revoked {
+		return auth.ErrSessionInvalid
 	}
 
 	// Inject actor context

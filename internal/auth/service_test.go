@@ -335,11 +335,34 @@ func TestService_Logout(t *testing.T) {
 
 		f.transactor.EXPECT().
 			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
-			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
 				f.authRepo.EXPECT().GetSessionByID(ctx, session.ID).Return(session, nil)
 				f.authRepo.EXPECT().UpdateSession(ctx, mock.AnythingOfType("*auth.Session")).Return(nil)
 				return fn(ctx)
 			})
+
+		f.revoker.EXPECT().RevokeSession(mock.Anything, session.ID).Return(nil)
+
+		err = f.service.Logout(ctx, session.ID)
+		assert.NoError(t, err)
+	})
+
+	t.Run("Access token revoke failure is best-effort", func(t *testing.T) {
+		ctx := auditCtx()
+		f := setupTestFixture(t)
+
+		session, _, err := auth.NewSession(ctx, uuid.New(), f.cfg.SessionTTL)
+		require.NoError(t, err)
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.authRepo.EXPECT().GetSessionByID(ctx, session.ID).Return(session, nil)
+				f.authRepo.EXPECT().UpdateSession(ctx, mock.AnythingOfType("*auth.Session")).Return(nil)
+				return fn(ctx)
+			})
+
+		f.revoker.EXPECT().RevokeSession(mock.Anything, session.ID).Return(assert.AnError)
 
 		err = f.service.Logout(ctx, session.ID)
 		assert.NoError(t, err)
@@ -356,10 +379,12 @@ func TestService_Logout(t *testing.T) {
 
 		f.transactor.EXPECT().
 			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
-			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
 				f.authRepo.EXPECT().GetSessionByID(ctx, session.ID).Return(session, nil)
 				return fn(ctx)
 			})
+
+		f.revoker.EXPECT().RevokeSession(mock.Anything, session.ID).Return(nil)
 
 		err = f.service.Logout(ctx, session.ID)
 		assert.NoError(t, err) // Should not error even if session is expired
@@ -583,6 +608,44 @@ func TestService_ResetPassword(t *testing.T) {
 				return fn(ctx)
 			})
 
+		f.revoker.EXPECT().RevokeAllForUser(mock.Anything, userID).Return(nil)
+
+		err = f.service.ResetPassword(ctx, input)
+		assert.NoError(t, err)
+	})
+
+	t.Run("Access-token revoke failure still succeeds", func(t *testing.T) {
+		ctx := context.Background()
+		f := setupTestFixture(t)
+
+		userID := uuid.New()
+		tokenObj, tokenRaw, err := auth.NewPasswordRecoveryToken(userID, f.cfg.PasswordRecoveryTokenTTL)
+		require.NoError(t, err)
+
+		input := auth.ResetPasswordInput{
+			Token:       tokenRaw,
+			NewPassword: "newpassword123",
+		}
+
+		mockUser := &user.User{ID: userID, Name: "John Doe", Email: "john@example.com"}
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			Run(func(ctx context.Context, fn func(context.Context) error) {
+				f.authRepo.EXPECT().GetPasswordRecoveryToken(ctx, mock.AnythingOfType("[]uint8")).Return(tokenObj, nil)
+				f.userRepo.EXPECT().GetByID(ctx, userID).Return(mockUser, nil)
+				f.authRepo.EXPECT().
+					UpdatePasswordRecoveryToken(ctx, mock.AnythingOfType("*auth.PasswordRecoveryToken")).
+					Return(nil)
+				f.userRepo.EXPECT().Update(ctx, mock.AnythingOfType("*user.User")).Return(nil)
+				f.authRepo.EXPECT().RevokeUserSessions(ctx, userID).Return(nil)
+			}).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				return fn(ctx)
+			})
+
+		f.revoker.EXPECT().RevokeAllForUser(mock.Anything, userID).Return(assert.AnError)
+
 		err = f.service.ResetPassword(ctx, input)
 		assert.NoError(t, err)
 	})
@@ -647,11 +710,50 @@ func TestService_ChangePassword(t *testing.T) {
 
 		f.transactor.EXPECT().
 			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
-			RunAndReturn(func(ctx context.Context, fn func(ctx context.Context) error) error {
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
 				f.userRepo.EXPECT().Update(ctx, mock.AnythingOfType("*user.User")).Return(nil)
 				f.authRepo.EXPECT().RevokeUserSessions(ctx, userID).Return(nil)
 				return fn(ctx)
 			})
+
+		f.revoker.EXPECT().RevokeAllForUser(mock.Anything, userID).Return(nil)
+
+		err = f.service.ChangePassword(ctx, userID, input)
+		assert.NoError(t, err)
+	})
+
+	t.Run("Access-token revoke failure still succeeds", func(t *testing.T) {
+		f := setupTestFixture(t)
+
+		userID := uuid.New()
+		ctx := rbac.WithContext(context.Background(), rbac.Context{
+			Actor: rbac.Actor{UserID: &userID, Role: rbac.RoleUser},
+		})
+		oldPassword := "oldpassword123"
+
+		hashedOldPassword, err := auth.HashPassword(oldPassword)
+		require.NoError(t, err)
+
+		mockUser := &user.User{
+			ID:       userID,
+			Name:     "John Doe",
+			Email:    "john@example.com",
+			Password: string(hashedOldPassword),
+		}
+
+		input := auth.ChangePasswordInput{Password: oldPassword, NewPassword: "newpassword123"}
+
+		f.userRepo.EXPECT().GetByID(ctx, userID).Return(mockUser, nil)
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.userRepo.EXPECT().Update(ctx, mock.AnythingOfType("*user.User")).Return(nil)
+				f.authRepo.EXPECT().RevokeUserSessions(ctx, userID).Return(nil)
+				return fn(ctx)
+			})
+
+		f.revoker.EXPECT().RevokeAllForUser(mock.Anything, userID).Return(assert.AnError)
 
 		err = f.service.ChangePassword(ctx, userID, input)
 		assert.NoError(t, err)
@@ -687,6 +789,194 @@ func TestService_ChangePassword(t *testing.T) {
 		err = f.service.ChangePassword(ctx, userID, input)
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, auth.ErrWrongCredentials)
+	})
+}
+
+func TestService_RevokeUserSessions(t *testing.T) {
+	adminCtx := func() context.Context {
+		adminID := uuid.New()
+		return rbac.WithContext(context.Background(), rbac.Context{
+			Actor: rbac.Actor{UserID: &adminID, Role: rbac.RoleAdmin},
+		})
+	}
+
+	t.Run("Admin revokes sessions in tx and tokens after commit", func(t *testing.T) {
+		ctx := adminCtx()
+		f := setupTestFixture(t)
+		targetID := uuid.New()
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.authRepo.EXPECT().RevokeUserSessions(ctx, targetID).Return(nil)
+				f.audit.EXPECT().Record(ctx, mock.MatchedBy(func(e audit.Entry) bool {
+					return e.Action == auth.ActionRevokeUserSessions && e.EntityID == targetID.String()
+				})).Return(nil)
+				return fn(ctx)
+			})
+
+		f.revoker.EXPECT().RevokeAllForUser(mock.Anything, targetID).Return(nil)
+
+		err := f.service.RevokeUserSessions(ctx, targetID)
+		assert.NoError(t, err)
+	})
+
+	t.Run("Plain user is forbidden", func(t *testing.T) {
+		userID := uuid.New()
+		ctx := rbac.WithContext(context.Background(), rbac.Context{
+			Actor: rbac.Actor{UserID: &userID, Role: rbac.RoleUser},
+		})
+		f := setupTestFixture(t)
+
+		// No transactor/revoker expectations: authorization must reject before
+		// any write path runs.
+		err := f.service.RevokeUserSessions(ctx, uuid.New())
+		assert.ErrorIs(t, err, rbac.ErrUnauthorizedPermission)
+	})
+
+	t.Run("Access-token revoke failure is returned", func(t *testing.T) {
+		ctx := adminCtx()
+		f := setupTestFixture(t)
+		targetID := uuid.New()
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.authRepo.EXPECT().RevokeUserSessions(ctx, targetID).Return(nil)
+				return fn(ctx)
+			})
+
+		f.revoker.EXPECT().RevokeAllForUser(mock.Anything, targetID).Return(assert.AnError)
+
+		err := f.service.RevokeUserSessions(ctx, targetID)
+		assert.ErrorIs(t, err, assert.AnError)
+	})
+}
+
+func TestService_RevokeSession(t *testing.T) {
+	actorCtx := func(role rbac.Role, userID uuid.UUID) context.Context {
+		return rbac.WithContext(context.Background(), rbac.Context{
+			Actor: rbac.Actor{UserID: &userID, Role: role},
+		})
+	}
+
+	t.Run("Self revokes own session", func(t *testing.T) {
+		ownerID := uuid.New()
+		ctx := actorCtx(rbac.RoleUser, ownerID)
+		f := setupTestFixture(t)
+
+		session, _, err := auth.NewSession(auditCtx(), ownerID, f.cfg.SessionTTL)
+		require.NoError(t, err)
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.authRepo.EXPECT().GetSessionByID(ctx, session.ID).Return(session, nil)
+				f.authRepo.EXPECT().UpdateSession(ctx, mock.MatchedBy(func(s *auth.Session) bool {
+					return s.ID == session.ID && s.RevokedAt.NotNull()
+				})).Return(nil)
+				f.audit.EXPECT().Record(ctx, mock.MatchedBy(func(e audit.Entry) bool {
+					return e.Action == auth.ActionRevokeSession &&
+						e.Entity == "session" &&
+						e.EntityID == session.ID.String()
+				})).Return(nil)
+				return fn(ctx)
+			})
+
+		f.revoker.EXPECT().RevokeSession(mock.Anything, session.ID).Return(nil)
+
+		err = f.service.RevokeSession(ctx, session.ID)
+		assert.NoError(t, err)
+	})
+
+	t.Run("Plain user cannot revoke another user's session", func(t *testing.T) {
+		actorID := uuid.New()
+		ownerID := uuid.New()
+		ctx := actorCtx(rbac.RoleUser, actorID)
+		f := setupTestFixture(t)
+
+		session, _, err := auth.NewSession(auditCtx(), ownerID, f.cfg.SessionTTL)
+		require.NoError(t, err)
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.authRepo.EXPECT().GetSessionByID(ctx, session.ID).Return(session, nil)
+				return fn(ctx)
+			})
+
+		// No UpdateSession or revoker expectations (strict mocks fail on an
+		// unexpected call); the audit recorder also must see zero calls.
+		err = f.service.RevokeSession(ctx, session.ID)
+		assert.ErrorIs(t, err, rbac.ErrUnauthorizedPermission)
+		f.audit.AssertNumberOfCalls(t, "Record", 0)
+	})
+
+	t.Run("Admin revokes another user's session", func(t *testing.T) {
+		adminID := uuid.New()
+		ownerID := uuid.New()
+		ctx := actorCtx(rbac.RoleAdmin, adminID)
+		f := setupTestFixture(t)
+
+		session, _, err := auth.NewSession(auditCtx(), ownerID, f.cfg.SessionTTL)
+		require.NoError(t, err)
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.authRepo.EXPECT().GetSessionByID(ctx, session.ID).Return(session, nil)
+				f.authRepo.EXPECT().UpdateSession(ctx, mock.MatchedBy(func(s *auth.Session) bool {
+					return s.ID == session.ID && s.RevokedAt.NotNull()
+				})).Return(nil)
+				f.audit.EXPECT().Record(ctx, mock.MatchedBy(func(e audit.Entry) bool {
+					return e.Action == auth.ActionRevokeSession && e.EntityID == session.ID.String()
+				})).Return(nil)
+				return fn(ctx)
+			})
+
+		f.revoker.EXPECT().RevokeSession(mock.Anything, session.ID).Return(nil)
+
+		err = f.service.RevokeSession(ctx, session.ID)
+		assert.NoError(t, err)
+	})
+
+	t.Run("Not found propagates without writes", func(t *testing.T) {
+		actorID := uuid.New()
+		ctx := actorCtx(rbac.RoleUser, actorID)
+		f := setupTestFixture(t)
+		sessionID := uuid.New()
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.authRepo.EXPECT().GetSessionByID(ctx, sessionID).Return(nil, apperr.ErrNotFound)
+				return fn(ctx)
+			})
+
+		err := f.service.RevokeSession(ctx, sessionID)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("Post-commit revoker error is returned", func(t *testing.T) {
+		ownerID := uuid.New()
+		ctx := actorCtx(rbac.RoleUser, ownerID)
+		f := setupTestFixture(t)
+
+		session, _, err := auth.NewSession(auditCtx(), ownerID, f.cfg.SessionTTL)
+		require.NoError(t, err)
+
+		f.transactor.EXPECT().
+			Transact(ctx, mock.AnythingOfType("func(context.Context) error")).
+			RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+				f.authRepo.EXPECT().GetSessionByID(ctx, session.ID).Return(session, nil)
+				f.authRepo.EXPECT().UpdateSession(ctx, mock.AnythingOfType("*auth.Session")).Return(nil)
+				return fn(ctx)
+			})
+
+		f.revoker.EXPECT().RevokeSession(mock.Anything, session.ID).Return(assert.AnError)
+
+		err = f.service.RevokeSession(ctx, session.ID)
+		assert.ErrorIs(t, err, assert.AnError)
 	})
 }
 
@@ -836,6 +1126,7 @@ type testFixture struct {
 	eventProducer *mocks.EventProducer
 	throttler     *sharedMocks.Throttler
 	audit         *sharedMocks.Recorder
+	revoker       *sharedMocks.Revoker
 	service       *auth.Service
 	cfg           config.Auth
 }
@@ -857,6 +1148,7 @@ func setupTestFixture(t *testing.T) *testFixture {
 	eventProducer := mocks.NewEventProducer(t)
 	throttler := sharedMocks.NewThrottler(t)
 	auditRec := sharedMocks.NewRecorder(t)
+	revoker := sharedMocks.NewRevoker(t)
 
 	// Audit is a side-effect; most tests don't care. Best-effort paths call it
 	// without a prior expectation, so register a lenient default. Tests that
@@ -864,7 +1156,7 @@ func setupTestFixture(t *testing.T) *testFixture {
 	// expectation, which testify matches first.
 	auditRec.On("Record", mock.Anything, mock.AnythingOfType("audit.Entry")).Return(nil).Maybe()
 
-	service := auth.NewService(cfg, tr, userRepo, authRepo, rbac.NewAuthorizer(), eventProducer, throttler, auditRec)
+	service := auth.NewService(cfg, tr, userRepo, authRepo, rbac.NewAuthorizer(), eventProducer, throttler, auditRec, revoker)
 
 	t.Cleanup(func() {
 		tr.AssertExpectations(t)
@@ -873,6 +1165,7 @@ func setupTestFixture(t *testing.T) *testFixture {
 		eventProducer.AssertExpectations(t)
 		throttler.AssertExpectations(t)
 		auditRec.AssertExpectations(t)
+		revoker.AssertExpectations(t)
 	})
 
 	return &testFixture{
@@ -883,6 +1176,7 @@ func setupTestFixture(t *testing.T) *testFixture {
 		eventProducer: eventProducer,
 		throttler:     throttler,
 		audit:         auditRec,
+		revoker:       revoker,
 		service:       service,
 	}
 }
