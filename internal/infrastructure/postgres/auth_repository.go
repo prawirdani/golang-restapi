@@ -108,6 +108,38 @@ func (r *authRepository) GetSessionByID(
 	return &sess, nil
 }
 
+// ListSessions implements [auth.Repository]
+func (r *authRepository) ListSessions(
+	ctx context.Context,
+	userID uuid.UUID,
+) ([]auth.Session, error) {
+	query := `SELECT
+		id,
+		user_id,
+		ip_addr,
+		user_agent,
+		accessed_at,
+		created_at,
+		expires_at,
+		revoked_at
+	FROM sessions
+	WHERE user_id = $1
+	  AND expires_at > NOW()
+	  AND revoked_at IS NULL
+	ORDER BY accessed_at DESC`
+	conn := r.db.GetConn(ctx)
+	if r.db.IsTxConn(conn) {
+		query += "\nFOR UPDATE"
+	}
+
+	sessions := make([]auth.Session, 0)
+	if err := pgxscan.Select(ctx, conn, &sessions, query, userID); err != nil {
+		return nil, fmt.Errorf("list session: %w", err)
+	}
+
+	return sessions, nil
+}
+
 // GetSessionByRefreshTokenHash implements [auth.Repository]
 func (r *authRepository) GetSessionByRefreshTokenHash(
 	ctx context.Context,

@@ -26,15 +26,15 @@ var (
 
 // Session represents a single login session for a user
 type Session struct {
-	ID               uuid.UUID                    `db:"id"`                 // session ID (UUIDv7)
-	UserID           uuid.UUID                    `db:"user_id"`            // owner user ID
-	RefreshTokenHash []byte                       `db:"refresh_token_hash"` // SHA-256 hash of refresh token
-	IPAddr           net.IP                       `db:"ip_addr"`            // client ip
-	UserAgent        string                       `db:"user_agent"`         // client info
-	AccessedAt       time.Time                    `db:"accessed_at"`        // creation time
-	CreatedAt        time.Time                    `db:"created_at"`         // last activity
-	ExpiresAt        time.Time                    `db:"expires_at"`         // session expiry
-	RevokedAt        nullable.Nullable[time.Time] `db:"revoked_at"`         // revocation timestamp
+	ID               uuid.UUID                    `db:"id"                 json:"id"`                         // session ID (UUIDv7)
+	UserID           uuid.UUID                    `db:"user_id"            json:"user_id,omitempty,omitzero"` // owner user ID
+	RefreshTokenHash []byte                       `db:"refresh_token_hash" json:"-"`                          // SHA-256 hash of refresh token
+	IPAddr           net.IP                       `db:"ip_addr"            json:"ip_addr"`                    // client ip
+	UserAgent        string                       `db:"user_agent"         json:"user_agent"`                 // client info
+	AccessedAt       time.Time                    `db:"accessed_at"        json:"accessed_at"`                // last activity
+	CreatedAt        time.Time                    `db:"created_at"         json:"created_at"`                 // creation time
+	ExpiresAt        time.Time                    `db:"expires_at"         json:"expires_at"`                 // session expiry
+	RevokedAt        nullable.Nullable[time.Time] `db:"revoked_at"         json:"revoked_at"`                 // revocation timestamp
 }
 
 // NewSession creates a new session with a generated refresh token

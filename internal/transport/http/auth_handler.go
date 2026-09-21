@@ -58,8 +58,9 @@ func (h *AuthHandler) Routes(router fiber.Router, auth *authenticatorMiddleware)
 			r.Get("/me", h.getCurrentUser)
 			r.Put("/password/change", h.changePassword)
 			r.Get("/permissions", h.listPermission)
-			r.Post("/users/:id/revoke-sessions", h.revokeUserSessions)
-			r.Post("/sessions/:id/revoke", h.revokeSession)
+			r.Delete("sessions/users/:userID", h.revokeUserSessions)
+			r.Get("/sessions/users/:userID", h.listUserSessions)
+			r.Delete("/sessions/:id", h.revokeSession)
 		})
 	})
 }
@@ -318,7 +319,7 @@ func (h *AuthHandler) listPermission(c fiber.Ctx) error {
 // compromised account; the service enforces auth.revoke-user-sessions.
 func (h *AuthHandler) revokeUserSessions(c fiber.Ctx) error {
 	ctx := c.Context()
-	param := c.Params("id")
+	param := c.Params("userID")
 
 	userID, err := uuid.Parse(param)
 	if err != nil {
@@ -353,6 +354,26 @@ func (h *AuthHandler) revokeSession(c fiber.Ctx) error {
 
 	return c.JSON(Body{
 		Message: "session revoked.",
+	})
+}
+
+func (h *AuthHandler) listUserSessions(c fiber.Ctx) error {
+	ctx := c.Context()
+	param := c.Params("userID")
+
+	userID, err := uuid.Parse(param)
+	if err != nil {
+		return ErrInvalidParam("userID", param)
+	}
+
+	sessions, err := h.authService.ListUserSessions(ctx, userID)
+	if err != nil {
+		log.ErrorCtx(ctx, "Failed to list user session", err)
+		return err
+	}
+
+	return c.JSON(Body{
+		Data: sessions,
 	})
 }
 

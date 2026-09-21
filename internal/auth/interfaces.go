@@ -25,6 +25,9 @@ type SessionReader interface {
 	// Returns [apperr.ErrNotFound] if no session exists with the given sessionID
 	GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*Session, error)
 
+	// ListSessions returns list of active session (not expired and not revoked) of specific user.
+	ListSessions(ctx context.Context, userID uuid.UUID) ([]Session, error)
+
 	// GetSessionByRefreshToken retrieves a session by refresh token hash
 	// Returns [apperr.ErrNotFound] if no session exists with the given tokenHash
 	GetSessionByRefreshTokenHash(ctx context.Context, tokenHash []byte) (*Session, error)

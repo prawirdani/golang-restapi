@@ -1119,6 +1119,62 @@ func TestVerifyAccessToken_InvalidSignature(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestService_ListUserSessions(t *testing.T) {
+	actorCtx := func(role rbac.Role, userID uuid.UUID) context.Context {
+		return rbac.WithContext(context.Background(), rbac.Context{
+			Actor: rbac.Actor{UserID: &userID, Role: role},
+		})
+	}
+
+	t.Run("User lists own sessions", func(t *testing.T) {
+		ownerID := uuid.New()
+		ctx := actorCtx(rbac.RoleUser, ownerID)
+		f := setupTestFixture(t)
+
+		expected := []auth.Session{{ID: uuid.New(), UserID: ownerID}}
+		f.authRepo.EXPECT().ListSessions(ctx, ownerID).Return(expected, nil)
+
+		sessions, err := f.service.ListUserSessions(ctx, ownerID)
+		assert.NoError(t, err)
+		assert.Equal(t, expected, sessions)
+	})
+
+	t.Run("Admin lists another user's sessions", func(t *testing.T) {
+		targetID := uuid.New()
+		ctx := actorCtx(rbac.RoleAdmin, uuid.New())
+		f := setupTestFixture(t)
+
+		expected := []auth.Session{{ID: uuid.New(), UserID: targetID}}
+		f.authRepo.EXPECT().ListSessions(ctx, targetID).Return(expected, nil)
+
+		sessions, err := f.service.ListUserSessions(ctx, targetID)
+		assert.NoError(t, err)
+		assert.Equal(t, expected, sessions)
+	})
+
+	t.Run("Plain user cannot list another user's sessions", func(t *testing.T) {
+		ctx := actorCtx(rbac.RoleUser, uuid.New())
+		f := setupTestFixture(t)
+
+		// No repo expectation: authorization must reject before the query runs.
+		sessions, err := f.service.ListUserSessions(ctx, uuid.New())
+		assert.ErrorIs(t, err, rbac.ErrUnauthorizedPermission)
+		assert.Nil(t, sessions)
+	})
+
+	t.Run("Repository error is propagated", func(t *testing.T) {
+		ownerID := uuid.New()
+		ctx := actorCtx(rbac.RoleUser, ownerID)
+		f := setupTestFixture(t)
+
+		f.authRepo.EXPECT().ListSessions(ctx, ownerID).Return(nil, assert.AnError)
+
+		sessions, err := f.service.ListUserSessions(ctx, ownerID)
+		assert.ErrorIs(t, err, assert.AnError)
+		assert.Nil(t, sessions)
+	})
+}
+
 type testFixture struct {
 	transactor    *sharedMocks.Transactor
 	userRepo      *mocks.UserRepository

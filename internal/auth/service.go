@@ -28,7 +28,7 @@ const (
 	PermChangePassword     rbac.Permission = "auth.change-password"
 	PermRegisterUser       rbac.Permission = "auth.register-user" // new user registration by authorized roles (gated by internal mode=true)
 	PermRevokeUserSessions rbac.Permission = "auth.revoke-user-sessions"
-	PermRevokeUserSession  rbac.Permission = "auth.revoke-user-session" // singular: revoke one session, any owner
+	PermViewUserSessions   rbac.Permission = "auth.view-user-sessions"
 )
 
 var permTables = rbac.PermissionTable{
@@ -36,13 +36,13 @@ var permTables = rbac.PermissionTable{
 		PermChangePassword:     {},
 		PermRegisterUser:       {},
 		PermRevokeUserSessions: {},
-		PermRevokeUserSession:  {},
+		PermViewUserSessions:   {},
 	},
 	rbac.RoleAdmin: {
 		PermChangePassword:     {},
 		PermRegisterUser:       {},
 		PermRevokeUserSessions: {},
-		PermRevokeUserSession:  {},
+		PermViewUserSessions:   {},
 	},
 	rbac.RoleUser: {},
 }
@@ -570,6 +570,13 @@ func (s *Service) ChangePassword(
 	return nil
 }
 
+func (s *Service) ListUserSessions(ctx context.Context, userID uuid.UUID) ([]Session, error) {
+	if err := s.authorizer.RequireSelfOr(ctx, userID, PermViewUserSessions); err != nil {
+		return nil, err
+	}
+	return s.authRepo.ListSessions(ctx, userID)
+}
+
 // RevokeUserSessions revokes every persisted session and stateless access token
 // belonging to userID. It is the admin escape hatch for a compromised account,
 // so unlike the password flows it returns an error when the access-token
@@ -613,7 +620,7 @@ func (s *Service) RevokeSession(ctx context.Context, sessionID uuid.UUID) error 
 
 		// Authorize against the SESSION OWNER's id, never one supplied by the
 		// request, so a plain user cannot revoke someone else's session.
-		if err := s.authorizer.RequireSelfOr(ctx, sess.UserID, PermRevokeUserSession); err != nil {
+		if err := s.authorizer.RequireSelfOr(ctx, sess.UserID, PermRevokeUserSessions); err != nil {
 			return err
 		}
 
