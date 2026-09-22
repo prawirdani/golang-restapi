@@ -58,7 +58,7 @@ func (h *AuthHandler) Routes(router fiber.Router, auth *authenticatorMiddleware)
 			r.Get("/me", h.getCurrentUser)
 			r.Put("/password/change", h.changePassword)
 			r.Get("/permissions", h.listPermission)
-			r.Delete("sessions/users/:userID", h.revokeUserSessions)
+			r.Delete("/sessions/users/:userID", h.revokeUserSessions)
 			r.Get("/sessions/users/:userID", h.listUserSessions)
 			r.Delete("/sessions/:id", h.revokeSession)
 		})
@@ -166,6 +166,9 @@ func (h *AuthHandler) getCurrentUser(c fiber.Ctx) error {
 
 	return c.JSON(Body{
 		Data: usr,
+		Meta: map[string]any{
+			"session_id": aCtx.SessionID,
+		},
 	})
 }
 
