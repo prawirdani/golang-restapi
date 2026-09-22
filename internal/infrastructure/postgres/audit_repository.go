@@ -41,8 +41,6 @@ func (r *auditRepository) List(ctx context.Context, search *audit.Search) ([]aud
 		return nil, fmt.Errorf("list audit: %w", err)
 	}
 
-	fmt.Println(query, args)
-
 	entries := make([]audit.EntryWithActor, 0, len(rows))
 	for i := range rows {
 		entries = append(entries, rows[i].toEntry())
