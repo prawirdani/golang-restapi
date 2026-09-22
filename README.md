@@ -642,7 +642,7 @@ handler never writes an error body itself.
 | `DELETE` | `/api/users/:id` | `user.delete` | Soft-delete; revokes sessions and access tokens |
 | `PUT` | `/api/users/profile-picture` | self (`user.update`) | Multipart image upload (field `image`, ≤ 2 MB, jpeg/png/webp) |
 | `DELETE` | `/api/users/profile-picture` | self (`user.update`) | Remove the caller's avatar |
-| `GET` | `/api/audit/` | `audit.read` | List audit entries (newest query, no pagination) |
+| `GET` | `/api/audit/` | `audit.read` | List audit entries; `entity`, `actor` and date filters, paginated and sortable |
 
 Notes:
 
@@ -801,7 +801,13 @@ sentinels (invalid path param, multipart, upload errors, rate limit) live in
 - **Not audited**: refused attempts (failed login) and refresh-token reuse are
   security *events*, not state changes. They are emitted as structured WARN logs
   so the table stays clean and the unauthenticated login path takes no write.
-- `GET /api/audit/` lists entries (requires `audit.read`; no pagination).
+- `GET /api/audit/` lists entries (requires `audit.read`). It accepts
+  `entity`, `actor`, `date`/`from`/`to`, `sort`/`order` and `page`/`limit`, and
+  reports the applied query in `meta`. `actor` matches `actor_id` exactly when it
+  is a full UUID and otherwise matches the actor's name with `ILIKE`. A bare
+  `date` is that UTC day; a full timestamp starts a 24-hour window at the instant
+  sent, so a client can express its own day boundaries without the server knowing
+  its timezone.
 
 ## Messaging and the worker
 

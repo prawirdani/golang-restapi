@@ -3,6 +3,7 @@ package http
 import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/prawirdani/golang-restapi/internal/audit"
+	"github.com/prawirdani/golang-restapi/pkg/log"
 )
 
 type AuditHandler struct {
@@ -22,12 +23,20 @@ func (h *AuditHandler) Routes(router fiber.Router, auth *authenticatorMiddleware
 }
 
 func (h *AuditHandler) list(c fiber.Ctx) error {
-	entries, err := h.service.List(c.Context())
+	ctx := c.Context()
+	search := new(audit.Search)
+	if err := c.Bind().Query(search); err != nil {
+		return err
+	}
+
+	entries, err := h.service.List(ctx, search)
 	if err != nil {
+		log.ErrorCtx(ctx, "Failed to list audit logs", err)
 		return err
 	}
 
 	return c.JSON(Body{
 		Data: entries,
+		Meta: search.Meta(),
 	})
 }

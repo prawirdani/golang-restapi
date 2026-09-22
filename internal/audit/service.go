@@ -29,9 +29,9 @@ func NewAuditService(authorizer rbac.Authorizer, reader Reader) *Service {
 	}
 }
 
-func (s *Service) List(ctx context.Context) ([]Entry, error) {
+func (s *Service) List(ctx context.Context, search *Search) ([]EntryWithActor, error) {
 	if err := s.authorizer.Require(ctx, PermRead); err != nil {
 		return nil, err
 	}
-	return s.reader.List(ctx)
+	return s.reader.List(ctx, search)
 }

@@ -62,5 +62,5 @@ type Recorder interface {
 }
 
 type Reader interface {
-	List(ctx context.Context) ([]Entry, error)
+	List(ctx context.Context, search *Search) ([]EntryWithActor, error)
 }

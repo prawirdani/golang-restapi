@@ -5,6 +5,7 @@ import (
 	"math"
 	"reflect"
 	"strings"
+	"time"
 )
 
 // QueryBuilder builds a SELECT query.
@@ -118,6 +119,27 @@ func (q *QueryBuilder) WhereILike(column string, value any) {
 		q.wheres,
 		fmt.Sprintf("%s ILIKE %s", column, ph),
 	)
+}
+
+// WhereBetween adds a half-open range predicate: column >= from AND column < to.
+// A zero bound leaves that side open, matching the other Where* helpers, which
+// ignore absent input. It always compares the column directly, never a function
+// of it, so an index on the column stays usable.
+// Implements [repository.Query]
+func (q *QueryBuilder) WhereBetween(column string, from, to time.Time) {
+	if !from.IsZero() {
+		q.wheres = append(
+			q.wheres,
+			fmt.Sprintf("%s >= %s", column, q.addArg(from)),
+		)
+	}
+
+	if !to.IsZero() {
+		q.wheres = append(
+			q.wheres,
+			fmt.Sprintf("%s < %s", column, q.addArg(to)),
+		)
+	}
 }
 
 // OrderBy adds an ORDER BY clause.

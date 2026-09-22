@@ -16,6 +16,8 @@ CREATE INDEX audit_logs_entity_idx ON audit_logs (entity, entity_id);
 
 CREATE INDEX audit_logs_actor_idx ON audit_logs (actor_id);
 
+CREATE INDEX audit_logs_created_at_idx ON audit_logs (created_at DESC);
+
 -- +goose StatementEnd
 -- +goose Down
 -- +goose StatementBegin

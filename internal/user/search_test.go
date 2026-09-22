@@ -3,6 +3,7 @@ package user
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/prawirdani/golang-restapi/internal/ports/repository"
 	"github.com/stretchr/testify/assert"
@@ -30,6 +31,8 @@ func (r *searchRecorder) WhereLike(string, any)  {}
 func (r *searchRecorder) WhereILike(string, any) {}
 func (r *searchRecorder) WhereNull(string)       {}
 func (r *searchRecorder) WhereNotNull(string)    {}
+
+func (r *searchRecorder) WhereBetween(string, time.Time, time.Time) {}
 
 func (r *searchRecorder) OrderBy(column, order string) {
 	r.orderBy = column + " " + order

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -117,6 +118,52 @@ func TestQueryBuilder_SQL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sql, args := tt.build().SQL()
+
+			assert.Equal(t, tt.wantSQL, sql)
+			assert.Equal(t, tt.wantArgs, args)
+		})
+	}
+}
+
+// TestQueryBuilder_WhereBetween pins the range predicate: a half-open pair of
+// bounds, each side independently open when its bound is the zero time.
+func TestQueryBuilder_WhereBetween(t *testing.T) {
+	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		from, to time.Time
+		wantSQL  string
+		wantArgs []any
+	}{
+		{
+			name:     "both bounds are half-open",
+			from:     from,
+			to:       to,
+			wantSQL:  "SELECT id FROM audit_logs WHERE created_at >= $1 AND created_at < $2",
+			wantArgs: []any{from, to},
+		},
+		{
+			name:     "from only leaves the upper side open",
+			from:     from,
+			wantSQL:  "SELECT id FROM audit_logs WHERE created_at >= $1",
+			wantArgs: []any{from},
+		},
+		{
+			name:     "to only leaves the lower side open",
+			to:       to,
+			wantSQL:  "SELECT id FROM audit_logs WHERE created_at < $1",
+			wantArgs: []any{to},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			qb := Select("audit_logs", "id")
+			qb.WhereBetween("created_at", tt.from, tt.to)
+
+			sql, args := qb.SQL()
 
 			assert.Equal(t, tt.wantSQL, sql)
 			assert.Equal(t, tt.wantArgs, args)

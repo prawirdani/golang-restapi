@@ -1,5 +1,7 @@
 package repository
 
+import "time"
+
 // Query is the minimal interface required by query modifiers.
 type Query interface {
 	WhereIn(column string, value any)
@@ -7,6 +9,7 @@ type Query interface {
 	WhereILike(column string, value any)
 	WhereNull(column string)
 	WhereNotNull(column string)
+	WhereBetween(column string, from, to time.Time)
 
 	OrderBy(column, order string)
 	Paginate(page, limit int)
@@ -41,6 +44,6 @@ func ApplyQuery(q Query, v any) {
 
 type QueryMeta[TFilter any] struct {
 	Filter     TFilter        `json:"filter,omitempty,omitzero"`
-	Sort       Sorting        `json:"sort,omitempty,omitzero"`
-	Pagination PaginationMeta `json:"pagination,omitempty,omitzero"`
+	Sort       Sorting        `json:"sort,omitzero"`
+	Pagination PaginationMeta `json:"pagination,omitzero"`
 }

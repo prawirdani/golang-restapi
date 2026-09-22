@@ -2,6 +2,7 @@ package repository
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -18,6 +19,8 @@ func (r *recordingQuery) WhereLike(string, any)  {}
 func (r *recordingQuery) WhereILike(string, any) {}
 func (r *recordingQuery) WhereNull(string)       {}
 func (r *recordingQuery) WhereNotNull(string)    {}
+
+func (r *recordingQuery) WhereBetween(string, time.Time, time.Time) {}
 
 func (r *recordingQuery) OrderBy(column, order string) {
 	r.orderBy = column + " " + order
